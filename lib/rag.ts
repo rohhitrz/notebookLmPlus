@@ -48,6 +48,7 @@ const rerankSchema = z.object({
 async function rerankChunks(
   standaloneQuestion: string,
   candidates: RetrievedChunk[],
+  keep: number = RERANK_KEEP,
 ): Promise<RetrievedChunk[]> {
   const prompt = `Score each excerpt from 0 (irrelevant) to 10 (highly relevant) for how well it helps answer the question below. Return every index exactly once.
 
@@ -63,7 +64,7 @@ ${candidates.map((c, i) => `[${i}] ${c.content.slice(0, 500)}`).join("\n\n")}`;
     .map((chunk, i) => ({ chunk, score: scoreByIndex.get(i) ?? 0 }))
     .filter((x) => x.score >= MIN_RERANK_SCORE)
     .sort((a, b) => b.score - a.score)
-    .slice(0, RERANK_KEEP)
+    .slice(0, keep)
     .map((x) => x.chunk);
 }
 
@@ -76,6 +77,7 @@ export async function retrieve(
   notebookId: string,
   question: string,
   history: ChatMessage[],
+  opts: { keep?: number } = {},
 ): Promise<RetrievalResult> {
   const standaloneQuestion = await rewriteStandaloneQuestion(question, history);
 
@@ -98,7 +100,7 @@ export async function retrieve(
     metadata: (m.metadata ?? {}) as ChunkMetadata,
   }));
 
-  const chunks = await rerankChunks(standaloneQuestion, candidates);
+  const chunks = await rerankChunks(standaloneQuestion, candidates, opts.keep);
   return { standaloneQuestion, chunks };
 }
 

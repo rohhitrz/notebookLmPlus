@@ -100,3 +100,45 @@ export interface Roadmap {
   items: RoadmapItem[];
   suggestedResources: SuggestedResource[];
 }
+
+export const ARTIFACT_TYPES = ["podcast", "pptx"] as const;
+export type ArtifactType = (typeof ARTIFACT_TYPES)[number];
+
+export const ARTIFACT_STATUSES = ["generating", "ready", "error"] as const;
+export type ArtifactStatus = (typeof ARTIFACT_STATUSES)[number];
+
+export const PODCAST_LENGTHS = ["short", "medium"] as const;
+export type PodcastLength = (typeof PODCAST_LENGTHS)[number];
+
+export const podcastScriptTurnSchema = z.object({
+  speaker: z.enum(["HOST_A", "HOST_B"]),
+  text: z.string(),
+});
+export type PodcastScriptTurn = z.infer<typeof podcastScriptTurnSchema>;
+
+export interface PodcastArtifactMetadata {
+  length: PodcastLength;
+  script: PodcastScriptTurn[];
+}
+
+export interface PptxArtifactMetadata {
+  topic: string | null;
+  slideCount: number | null;
+}
+
+export interface ArtifactListItem {
+  id: string;
+  type: ArtifactType;
+  status: ArtifactStatus;
+  createdAt: string;
+}
+
+export interface ArtifactDetail {
+  id: string;
+  notebookId: string;
+  type: ArtifactType;
+  status: ArtifactStatus;
+  errorMessage: string | null;
+  metadata: PodcastArtifactMetadata | PptxArtifactMetadata | null;
+  url: string | null;
+}

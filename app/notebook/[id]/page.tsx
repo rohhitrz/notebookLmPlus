@@ -4,9 +4,9 @@ import { NotebookShell } from "@/components/notebook/notebook-shell";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getOwnedNotebook } from "@/lib/db/queries";
-import { chats, messages, sources } from "@/lib/db/schema";
+import { artifacts, chats, messages, sources } from "@/lib/db/schema";
 import { NotFoundError } from "@/lib/errors";
-import type { Citation, DisplayMessage } from "@/lib/types";
+import type { ArtifactListItem, Citation, DisplayMessage } from "@/lib/types";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -56,12 +56,30 @@ export default async function NotebookPage({ params }: Params) {
     }));
   }
 
+  const artifactRows = await db
+    .select({
+      id: artifacts.id,
+      type: artifacts.type,
+      status: artifacts.status,
+      createdAt: artifacts.createdAt,
+    })
+    .from(artifacts)
+    .where(eq(artifacts.notebookId, id))
+    .orderBy(desc(artifacts.createdAt));
+  const initialArtifacts: ArtifactListItem[] = artifactRows.map((a) => ({
+    id: a.id,
+    type: a.type as ArtifactListItem["type"],
+    status: a.status as ArtifactListItem["status"],
+    createdAt: a.createdAt.toISOString(),
+  }));
+
   return (
     <NotebookShell
       notebook={notebook}
       initialSources={sourceRows}
       initialChatId={latestChat?.id}
       initialMessages={initialMessages}
+      initialArtifacts={initialArtifacts}
     />
   );
 }

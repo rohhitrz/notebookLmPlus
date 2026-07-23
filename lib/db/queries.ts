@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { NotFoundError } from "@/lib/errors";
 import { db } from "./index";
-import { chats, chunks, notebooks, sources } from "./schema";
+import { artifacts, chats, chunks, notebooks, sources } from "./schema";
 
 export async function getOwnedNotebook(notebookId: string, userId: string) {
   const [notebook] = await db
@@ -44,4 +44,16 @@ export async function getOwnedChunk(chunkId: string, userId: string) {
     throw new NotFoundError("Chunk not found");
   }
   return row.chunk;
+}
+
+export async function getOwnedArtifact(artifactId: string, userId: string) {
+  const [row] = await db
+    .select({ artifact: artifacts, notebookUserId: notebooks.userId })
+    .from(artifacts)
+    .innerJoin(notebooks, eq(artifacts.notebookId, notebooks.id))
+    .where(eq(artifacts.id, artifactId));
+  if (!row || row.notebookUserId !== userId) {
+    throw new NotFoundError("Artifact not found");
+  }
+  return row.artifact;
 }

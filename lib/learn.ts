@@ -23,7 +23,7 @@ const conceptSchema = z.object({
   ),
 });
 
-async function summarizeSource(source: { id: string; title: string; type: string }) {
+export async function loadSourceBody(source: { id: string; type: string }): Promise<string> {
   const rows = await db
     .select({ content: chunks.content, metadata: chunks.metadata })
     .from(chunks)
@@ -31,7 +31,7 @@ async function summarizeSource(source: { id: string; title: string; type: string
     .orderBy(asc(chunks.seq));
 
   const isTimed = source.type === "youtube" || source.type === "vtt";
-  const body = rows
+  return rows
     .map((r) => {
       const meta = (r.metadata ?? {}) as { startSec?: number };
       const label = isTimed && meta.startSec != null ? `[${Math.floor(meta.startSec)}s] ` : "";
@@ -39,6 +39,11 @@ async function summarizeSource(source: { id: string; title: string; type: string
     })
     .join("\n\n")
     .slice(0, 20000);
+}
+
+async function summarizeSource(source: { id: string; title: string; type: string }) {
+  const body = await loadSourceBody(source);
+  const isTimed = source.type === "youtube" || source.type === "vtt";
 
   const prompt = `Summarize the concepts covered in the source titled "${source.title}". List each distinct concept once${isTimed ? ", with the timestamp in seconds where it is first introduced" : ""}.
 

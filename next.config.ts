@@ -1,7 +1,13 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  serverExternalPackages: [
+    "fluent-ffmpeg",
+    "ffmpeg-static",
+    "youtubei.js",
+    "bgutils-js",
+    "jsdom",
+  ],
 };
 
 export default nextConfig;

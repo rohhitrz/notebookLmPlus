@@ -2,8 +2,10 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { PanelLeft } from "lucide-react";
 import { UserButton } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ChatPanel, type ChatAction } from "@/components/notebook/chat-panel";
 import { SourceViewer } from "@/components/notebook/source-viewer";
@@ -75,6 +77,7 @@ export function LearnShell({
   const [activeChatId, setActiveChatId] = useState<string | undefined>(initialChats[0]?.id);
   const [viewerCitation, setViewerCitation] = useState<Citation | null>(null);
   const [resourcesByChat, setResourcesByChat] = useState<Record<string, { title: string; url: string }[]>>({});
+  const [roadmapOpen, setRoadmapOpen] = useState(false);
 
   async function refreshRoadmap() {
     const res = await fetch(`/api/learn/roadmap?notebookId=${notebook.id}`);
@@ -115,11 +118,50 @@ export function LearnShell({
     }
   }
 
+  function startChatAndCloseDrawer(item: RoadmapItem) {
+    setRoadmapOpen(false);
+    handleStartChat(item);
+  }
+
+  const roadmapContent = (
+    <>
+      <RoadmapPanel
+        goal={goal}
+        items={items}
+        sources={sources}
+        activeChatId={activeChatId}
+        onStartChat={startChatAndCloseDrawer}
+        onContinueChat={(id) => {
+          setRoadmapOpen(false);
+          setActiveChatId(id);
+        }}
+      />
+
+      {initialSuggestedResources.length > 0 && (
+        <div className="flex flex-col gap-2 border-t p-4">
+          <h2 className="text-sm font-semibold text-muted-foreground">Suggested resources</h2>
+          {initialSuggestedResources.map((r, i) => (
+            <ResourceCard key={i} resource={r} onAdd={() => handleAddResource(r.url)} />
+          ))}
+        </div>
+      )}
+    </>
+  );
+
   return (
     <div className="flex h-screen flex-col">
       <header className="flex items-center justify-between border-b px-4 py-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <Link href="/" className="text-sm text-muted-foreground hover:text-foreground">
+        <div className="flex min-w-0 items-center gap-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="md:hidden"
+            aria-label="Show roadmap"
+            onClick={() => setRoadmapOpen(true)}
+          >
+            <PanelLeft className="size-4" />
+          </Button>
+          <Link href="/" className="hidden text-sm text-muted-foreground hover:text-foreground sm:inline">
             ← Notebooks
           </Link>
           <span className="truncate font-semibold">{notebook.title}</span>
@@ -128,27 +170,20 @@ export function LearnShell({
       </header>
 
       <div className="flex flex-1 overflow-hidden">
-        <aside className="w-96 shrink-0 overflow-y-auto border-r">
-          <RoadmapPanel
-            goal={goal}
-            items={items}
-            sources={sources}
-            activeChatId={activeChatId}
-            onStartChat={handleStartChat}
-            onContinueChat={setActiveChatId}
-          />
-
-          {initialSuggestedResources.length > 0 && (
-            <div className="flex flex-col gap-2 border-t p-4">
-              <h2 className="text-sm font-semibold text-muted-foreground">Suggested resources</h2>
-              {initialSuggestedResources.map((r, i) => (
-                <ResourceCard key={i} resource={r} onAdd={() => handleAddResource(r.url)} />
-              ))}
-            </div>
-          )}
+        <aside className="hidden w-96 shrink-0 overflow-y-auto border-r md:block">
+          {roadmapContent}
         </aside>
 
-        <main className="flex flex-1 flex-col overflow-hidden">
+        <Sheet open={roadmapOpen} onOpenChange={setRoadmapOpen}>
+          <SheetContent side="left" className="w-[90vw] max-w-md gap-0 p-0">
+            <SheetHeader className="border-b">
+              <SheetTitle>Roadmap</SheetTitle>
+            </SheetHeader>
+            <div className="min-h-0 flex-1 overflow-y-auto">{roadmapContent}</div>
+          </SheetContent>
+        </Sheet>
+
+        <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
           {chatList.length === 0 ? (
             <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
               Start a topic from the roadmap to begin.

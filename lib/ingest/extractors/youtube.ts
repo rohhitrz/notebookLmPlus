@@ -1,5 +1,5 @@
-import { Innertube } from "youtubei.js";
 import type { ExtractResult, ExtractUnit } from "../types";
+import { getYoutubeSession, invalidateYoutubeSession } from "../potoken";
 import { parseVtt } from "./vtt";
 
 const BROWSER_USER_AGENT =
@@ -23,8 +23,8 @@ export async function resolveYoutubeUrls(
   const listId = u.searchParams.get("list");
   if (!listId) return [{ url }];
 
-  const yt = await Innertube.create();
-  const playlist = await yt.getPlaylist(listId);
+  const { innertube } = await getYoutubeSession();
+  const playlist = await innertube.getPlaylist(listId);
 
   const videos: ResolvedYoutubeVideo[] = [];
   for (const item of playlist.items) {
@@ -40,36 +40,49 @@ export async function resolveYoutubeUrls(
   return videos;
 }
 
-export async function extractYoutube(url: string): Promise<ExtractResult> {
-  const videoId = extractVideoId(url);
-  if (!videoId) throw new Error("Could not parse YouTube video ID from URL");
-
-  const yt = await Innertube.create();
-  const info = await yt.getInfo(videoId);
-  const title = info.basic_info.title;
+// Downloads the caption VTT for one video, signing the timedtext request with a
+// PO token. Returns the raw VTT body (empty string if YouTube rejected the token).
+async function fetchCaptionVtt(videoId: string): Promise<{ title: string; vtt: string }> {
+  const { innertube, poToken } = await getYoutubeSession();
+  const info = await innertube.getInfo(videoId);
+  const title = info.basic_info.title ?? "YouTube video";
 
   const tracks = info.captions?.caption_tracks ?? [];
   if (tracks.length === 0) {
     throw new Error("This video has no caption tracks available");
   }
-  const track = tracks.find((t) => t.language_code?.startsWith("en")) ?? tracks[0];
+  const track =
+    tracks.find((t) => t.language_code?.startsWith("en")) ?? tracks[0];
 
-  const response = await fetch(`${track.base_url}&fmt=vtt`, {
+  // The pot + c=WEB params are what make YouTube return a non-empty body.
+  const captionUrl = `${track.base_url}&fmt=vtt&c=WEB&pot=${poToken}`;
+  const response = await fetch(captionUrl, {
     headers: { "User-Agent": BROWSER_USER_AGENT },
   });
   if (!response.ok) {
     throw new Error("Failed to download captions for this video (YouTube returned an error)");
   }
 
-  const cues = parseVtt(await response.text());
+  return { title, vtt: await response.text() };
+}
+
+export async function extractYoutube(url: string): Promise<ExtractResult> {
+  const videoId = extractVideoId(url);
+  if (!videoId) throw new Error("Could not parse YouTube video ID from URL");
+
+  let { title, vtt } = await fetchCaptionVtt(videoId);
+
+  // An empty body means the PO token was rejected (usually expired). Re-mint once.
+  if (!vtt.trim()) {
+    invalidateYoutubeSession();
+    ({ title, vtt } = await fetchCaptionVtt(videoId));
+  }
+
+  const cues = parseVtt(vtt);
   if (cues.length === 0) {
-    // YouTube now requires a PO (proof-of-origin) token on caption downloads;
-    // without one it returns 200 with an empty body regardless of whether the
-    // video actually has captions. This is a platform-wide limitation, not
-    // specific to this video.
     throw new Error(
-      "YouTube blocked this caption download (its anti-bot protection currently rejects " +
-        "automated requests). This is a known YouTube-wide limitation, not an issue with this video.",
+      "Could not extract captions for this video. It may have captions disabled, " +
+        "or YouTube declined the request — try again in a moment.",
     );
   }
 

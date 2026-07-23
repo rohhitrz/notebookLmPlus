@@ -6,6 +6,7 @@ const supabase = createClient(
 );
 
 const SOURCES_BUCKET = "sources";
+const ARTIFACTS_BUCKET = "artifacts";
 
 export async function uploadSourceFile(
   path: string,
@@ -32,6 +33,25 @@ export async function deleteSourceFile(path: string): Promise<void> {
 export async function getSignedUrl(path: string, expiresInSeconds = 3600): Promise<string> {
   const { data, error } = await supabase.storage
     .from(SOURCES_BUCKET)
+    .createSignedUrl(path, expiresInSeconds);
+  if (error) throw error;
+  return data.signedUrl;
+}
+
+export async function uploadArtifactFile(
+  path: string,
+  file: Buffer,
+  contentType: string,
+): Promise<void> {
+  const { error } = await supabase.storage
+    .from(ARTIFACTS_BUCKET)
+    .upload(path, file, { contentType, upsert: true });
+  if (error) throw error;
+}
+
+export async function getArtifactSignedUrl(path: string, expiresInSeconds = 3600): Promise<string> {
+  const { data, error } = await supabase.storage
+    .from(ARTIFACTS_BUCKET)
     .createSignedUrl(path, expiresInSeconds);
   if (error) throw error;
   return data.signedUrl;

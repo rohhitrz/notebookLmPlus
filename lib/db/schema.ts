@@ -117,6 +117,7 @@ export const artifacts = pgTable("artifacts", {
     .references(() => notebooks.id, { onDelete: "cascade" }),
   type: text("type").notNull(),
   status: text("status").notNull(),
+  errorMessage: text("error_message"),
   storagePath: text("storage_path"),
   metadata: jsonb("metadata"),
   createdAt: timestamp("created_at", { withTimezone: true })
