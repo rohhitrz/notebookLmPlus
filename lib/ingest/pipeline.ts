@@ -63,7 +63,7 @@ export async function processSource(sourceId: string): Promise<void> {
 
     await setStatus(sourceId, "embedding");
     const embedTexts = chunkList.map((c) => `[${source.title}] ${c.content}`);
-    const vectors = await embedBatch(embedTexts, "RETRIEVAL_DOCUMENT");
+    const vectors = await embedBatch(embedTexts);
 
     await upsertChunks(
       chunkList.map((c, i) => ({

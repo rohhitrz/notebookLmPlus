@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 export const SOURCE_TYPES = ["pdf", "text", "url", "youtube", "vtt"] as const;
 export type SourceType = (typeof SOURCE_TYPES)[number];
 
@@ -63,4 +65,38 @@ export interface ChunkDetail {
   sourceId: string;
   content: string;
   metadata: ChunkDetailMetadata | null;
+}
+
+export const ROADMAP_ITEM_STATUSES = ["todo", "in_progress", "done"] as const;
+export type RoadmapItemStatus = (typeof ROADMAP_ITEM_STATUSES)[number];
+
+export const roadmapItemSchema = z.object({
+  id: z.string(),
+  order: z.number().int(),
+  concept: z.string(),
+  why: z.string(),
+  status: z.enum(ROADMAP_ITEM_STATUSES),
+  sources: z.array(
+    z.object({
+      sourceId: z.string().uuid(),
+      startSec: z.number().optional(),
+    }),
+  ),
+  chatId: z.string().uuid().nullable(),
+});
+export type RoadmapItem = z.infer<typeof roadmapItemSchema>;
+
+export const suggestedResourceSchema = z.object({
+  title: z.string(),
+  url: z.string(),
+  type: z.string(),
+});
+export type SuggestedResource = z.infer<typeof suggestedResourceSchema>;
+
+export interface Roadmap {
+  id: string;
+  notebookId: string;
+  goal: string;
+  items: RoadmapItem[];
+  suggestedResources: SuggestedResource[];
 }

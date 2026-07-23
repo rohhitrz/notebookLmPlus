@@ -6,7 +6,14 @@ import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getOwnedChat, getOwnedNotebook } from "@/lib/db/queries";
 import { chats, messages } from "@/lib/db/schema";
-import type { ChatMessage } from "@/lib/llm";
+import {
+  buildTeachingSystemPrompt,
+  extractTopicAction,
+  getTeachingContext,
+  markRoadmapItemDone,
+  updateChatSummary,
+} from "@/lib/learn";
+import { chat, type ChatMessage } from "@/lib/llm";
 import {
   generateAnswer,
   NO_SOURCES_MESSAGE,
@@ -29,9 +36,11 @@ export const POST = apiHandler(async (req: NextRequest) => {
 
   let chatId = chatIdInput;
   let history: ChatMessage[] = [];
+  let topic: string | null = null;
 
   if (chatId) {
-    await getOwnedChat(chatId, notebookId);
+    const existingChat = await getOwnedChat(chatId, notebookId);
+    topic = existingChat.topic;
     const priorMessages = await db
       .select()
       .from(messages)
@@ -70,6 +79,53 @@ export const POST = apiHandler(async (req: NextRequest) => {
             citations: [],
           });
           send("citations", { citations: [] });
+          send("done", {});
+          controller.close();
+          return;
+        }
+
+        if (topic) {
+          const context = await getTeachingContext(notebookId, chatId, topic);
+          const system = buildTeachingSystemPrompt({
+            concept: context.concept,
+            why: context.why,
+            roadmap: context.roadmapItems,
+            siblingSummaries: context.siblingSummaries,
+            chunks,
+          });
+
+          if (process.env.NODE_ENV !== "production") {
+            console.log(`[learn] teaching system prompt (chat ${chatId})\n${system}`);
+          }
+
+          let raw = "";
+          for await (const piece of chat([{ role: "user", content: standaloneQuestion }], system)) {
+            raw += piece;
+          }
+
+          const { visibleText, action } = extractTopicAction(raw);
+          send("token", { text: visibleText });
+
+          const citations = parseCitations(visibleText, chunks);
+          await db.insert(messages).values({ chatId, role: "assistant", content: visibleText, citations });
+          send("citations", { citations });
+
+          if (action?.type === "complete_topic") {
+            await markRoadmapItemDone(notebookId, chatId);
+            send("action", { action: "complete_topic" });
+          } else if (action?.type === "suggest_resources") {
+            send("action", { action: "suggest_resources", resources: action.resources });
+          }
+
+          const transcript = [
+            ...history,
+            { role: "user" as const, content: message },
+            { role: "assistant" as const, content: visibleText },
+          ]
+            .map((m) => `${m.role}: ${m.content}`)
+            .join("\n");
+          await updateChatSummary(chatId, transcript);
+
           send("done", {});
           controller.close();
           return;

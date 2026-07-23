@@ -50,7 +50,7 @@ export async function extractYoutube(url: string): Promise<ExtractResult> {
 
   const tracks = info.captions?.caption_tracks ?? [];
   if (tracks.length === 0) {
-    throw new Error("No captions available for this video");
+    throw new Error("This video has no caption tracks available");
   }
   const track = tracks.find((t) => t.language_code?.startsWith("en")) ?? tracks[0];
 
@@ -58,12 +58,19 @@ export async function extractYoutube(url: string): Promise<ExtractResult> {
     headers: { "User-Agent": BROWSER_USER_AGENT },
   });
   if (!response.ok) {
-    throw new Error("No captions available for this video");
+    throw new Error("Failed to download captions for this video (YouTube returned an error)");
   }
 
   const cues = parseVtt(await response.text());
   if (cues.length === 0) {
-    throw new Error("No captions available for this video");
+    // YouTube now requires a PO (proof-of-origin) token on caption downloads;
+    // without one it returns 200 with an empty body regardless of whether the
+    // video actually has captions. This is a platform-wide limitation, not
+    // specific to this video.
+    throw new Error(
+      "YouTube blocked this caption download (its anti-bot protection currently rejects " +
+        "automated requests). This is a known YouTube-wide limitation, not an issue with this video.",
+    );
   }
 
   const units: ExtractUnit[] = cues.map((c) => ({

@@ -104,6 +104,7 @@ export const roadmaps = pgTable("roadmaps", {
     .references(() => notebooks.id, { onDelete: "cascade" }),
   goal: text("goal").notNull(),
   items: jsonb("items"),
+  suggestedResources: jsonb("suggested_resources"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

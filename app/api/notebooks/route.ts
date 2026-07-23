@@ -8,15 +8,16 @@ import { notebooks } from "@/lib/db/schema";
 
 const createNotebookSchema = z.object({
   title: z.string().trim().min(1).max(200),
+  kind: z.enum(["notebook", "learning_project"]).default("notebook"),
 });
 
 export const POST = apiHandler(async (req: NextRequest) => {
   const userId = await requireUser();
-  const { title } = createNotebookSchema.parse(await req.json());
+  const { title, kind } = createNotebookSchema.parse(await req.json());
 
   const [notebook] = await db
     .insert(notebooks)
-    .values({ userId, title })
+    .values({ userId, title, kind })
     .returning();
 
   return NextResponse.json(notebook, { status: 201 });

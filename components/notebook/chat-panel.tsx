@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Send } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -9,27 +9,119 @@ import { CitationChip } from "@/components/notebook/citation-chip";
 import { parseSSEStream } from "@/lib/sse-client";
 import type { Citation, DisplayMessage } from "@/lib/types";
 
+export type ChatAction =
+  | { action: "complete_topic" }
+  | { action: "suggest_resources"; resources: { title: string; url: string }[] };
+
 interface ChatPanelProps {
   notebookId: string;
   disabled: boolean;
   onCitationClick: (citation: Citation) => void;
   initialChatId?: string;
   initialMessages?: DisplayMessage[];
+  onAction?: (action: ChatAction) => void;
+  emptyStateText?: string;
+  placeholder?: string;
 }
+
+function renderInline(
+  text: string,
+  citations: Citation[],
+  onCitationClick: (c: Citation) => void,
+  keyPrefix: string,
+) {
+  const citationByN = new Map(citations.map((c) => [c.n, c]));
+  const parts = text.split(/(\*\*[^*]+\*\*|\[\d+\])/g);
+  return parts.map((part, i) => {
+    const citationMatch = part.match(/^\[(\d+)\]$/);
+    if (citationMatch) {
+      const n = Number(citationMatch[1]);
+      return (
+        <CitationChip
+          key={`${keyPrefix}-${i}`}
+          n={n}
+          citation={citationByN.get(n)}
+          onClick={onCitationClick}
+        />
+      );
+    }
+    const boldMatch = part.match(/^\*\*([^*]+)\*\*$/);
+    if (boldMatch) return <strong key={`${keyPrefix}-${i}`}>{boldMatch[1]}</strong>;
+    return <span key={`${keyPrefix}-${i}`}>{part}</span>;
+  });
+}
+
+const BULLET_RE = /^\s*[*-]\s+(.*)$/;
+const NUMBERED_RE = /^\s*\d+[.)]\s+(.*)$/;
 
 function renderContent(
   content: string,
   citations: Citation[],
   onCitationClick: (c: Citation) => void,
 ) {
-  const citationByN = new Map(citations.map((c) => [c.n, c]));
-  const parts = content.split(/(\[\d+\])/g);
-  return parts.map((part, i) => {
-    const match = part.match(/^\[(\d+)\]$/);
-    if (!match) return <span key={i}>{part}</span>;
-    const n = Number(match[1]);
-    return <CitationChip key={i} n={n} citation={citationByN.get(n)} onClick={onCitationClick} />;
-  });
+  const lines = content.split("\n");
+  const blocks: ReactNode[] = [];
+  let paragraphBuffer: string[] = [];
+
+  function flushParagraph() {
+    if (paragraphBuffer.length === 0) return;
+    const text = paragraphBuffer.join(" ").trim();
+    paragraphBuffer = [];
+    if (!text) return;
+    blocks.push(
+      <p key={`p-${blocks.length}`}>
+        {renderInline(text, citations, onCitationClick, `p-${blocks.length}`)}
+      </p>,
+    );
+  }
+
+  let i = 0;
+  while (i < lines.length) {
+    const bulletMatch = lines[i].match(BULLET_RE);
+    const numberedMatch = lines[i].match(NUMBERED_RE);
+    const listRe = bulletMatch ? BULLET_RE : numberedMatch ? NUMBERED_RE : null;
+
+    if (listRe) {
+      flushParagraph();
+      const items: string[] = [];
+      while (i < lines.length) {
+        const m = lines[i].match(listRe);
+        if (!m) break;
+        items.push(m[1]);
+        i++;
+      }
+      const ListTag = bulletMatch ? "ul" : "ol";
+      blocks.push(
+        <ListTag
+          key={`list-${blocks.length}`}
+          className={bulletMatch ? "list-disc space-y-1 pl-5" : "list-decimal space-y-1 pl-5"}
+        >
+          {items.map((item, idx) => (
+            <li key={idx}>
+              {renderInline(item, citations, onCitationClick, `list-${blocks.length}-${idx}`)}
+            </li>
+          ))}
+        </ListTag>,
+      );
+      continue;
+    }
+
+    if (lines[i].trim() === "") {
+      flushParagraph();
+      i++;
+      continue;
+    }
+
+    paragraphBuffer.push(lines[i].trim());
+    i++;
+  }
+  flushParagraph();
+
+  return (
+    <div className="flex flex-col gap-2">
+      {blocks.length > 0 ? blocks : renderInline(content, citations, onCitationClick, "root")}
+    </div>
+  );
 }
 
 export function ChatPanel({
@@ -38,6 +130,9 @@ export function ChatPanel({
   onCitationClick,
   initialChatId,
   initialMessages = [],
+  onAction,
+  emptyStateText,
+  placeholder,
 }: ChatPanelProps) {
   const [messages, setMessages] = useState<DisplayMessage[]>(initialMessages);
   const [input, setInput] = useState("");
@@ -86,6 +181,8 @@ export function ChatPanel({
           setMessages((prev) =>
             prev.map((m) => (m.id === assistantId ? { ...m, citations } : m)),
           );
+        } else if (evt.event === "action") {
+          onAction?.(evt.data as ChatAction);
         } else if (evt.event === "error") {
           toast.error((evt.data as { message: string }).message);
         }
@@ -102,7 +199,7 @@ export function ChatPanel({
       <div className="flex-1 overflow-y-auto p-4">
         {messages.length === 0 ? (
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-            {disabled ? "Add a source to start chatting." : "Ask a question about your sources."}
+            {disabled ? "Add a source to start chatting." : emptyStateText ?? "Ask a question about your sources."}
           </div>
         ) : (
           <div className="flex flex-col gap-4">
@@ -112,7 +209,7 @@ export function ChatPanel({
                   className={
                     m.role === "user"
                       ? "max-w-lg rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground"
-                      : "max-w-2xl rounded-lg bg-muted px-3 py-2 text-sm whitespace-pre-wrap"
+                      : "max-w-2xl rounded-lg bg-muted px-3 py-2 text-sm"
                   }
                 >
                   {m.role === "assistant"
@@ -135,7 +232,7 @@ export function ChatPanel({
               handleSend();
             }
           }}
-          placeholder={disabled ? "Add a source to start chatting…" : "Ask a question…"}
+          placeholder={disabled ? "Add a source to start chatting…" : placeholder ?? "Ask a question…"}
           disabled={disabled}
           rows={2}
           className="flex-1 resize-none"

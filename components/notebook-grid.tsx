@@ -15,13 +15,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { MoreVertical, NotebookText, Trash2 } from "lucide-react";
 import { CreateNotebookDialog } from "@/components/create-notebook-dialog";
+import { CreateLearningProjectDialog } from "@/components/create-learning-project-dialog";
 
 export interface NotebookSummary {
   id: string;
   title: string;
+  kind: string;
   createdAt: string | Date;
 }
 
@@ -39,7 +42,10 @@ export function NotebookGrid({ notebooks }: { notebooks: NotebookSummary[] }) {
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Your notebooks</h1>
-        <CreateNotebookDialog />
+        <div className="flex items-center gap-2">
+          <CreateLearningProjectDialog />
+          <CreateNotebookDialog />
+        </div>
       </div>
 
       {items.length === 0 ? (
@@ -73,9 +79,22 @@ export function NotebookGrid({ notebooks }: { notebooks: NotebookSummary[] }) {
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-              <Link href={`/notebook/${notebook.id}`}>
+              <Link
+                href={
+                  notebook.kind === "learning_project"
+                    ? `/learn/${notebook.id}`
+                    : `/notebook/${notebook.id}`
+                }
+              >
                 <CardHeader>
-                  <CardTitle className="line-clamp-2 pr-6">{notebook.title}</CardTitle>
+                  <div className="flex items-center gap-2 pr-6">
+                    <CardTitle className="line-clamp-2">{notebook.title}</CardTitle>
+                    {notebook.kind === "learning_project" && (
+                      <Badge variant="secondary" className="shrink-0">
+                        Learning
+                      </Badge>
+                    )}
+                  </div>
                   <CardDescription>
                     {new Date(notebook.createdAt).toLocaleDateString("en-US", {
                       dateStyle: "medium",
