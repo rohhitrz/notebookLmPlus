@@ -1,0 +1,141 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { PdfViewer } from "@/components/notebook/pdf-viewer";
+import type { ChunkDetail, Citation, SourceDetail } from "@/lib/types";
+
+interface SourceViewerProps {
+  citation: Citation | null;
+  onClose: () => void;
+}
+
+function extractYoutubeId(url: string): string | null {
+  try {
+    const u = new URL(url);
+    if (u.hostname.includes("youtu.be")) return u.pathname.slice(1) || null;
+    return u.searchParams.get("v");
+  } catch {
+    return null;
+  }
+}
+
+function HighlightedText({ text, highlight }: { text: string; highlight: string }) {
+  const markRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    markRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [text, highlight]);
+
+  const idx = highlight ? text.indexOf(highlight) : -1;
+  if (idx === -1) {
+    return <p className="whitespace-pre-wrap text-sm">{text}</p>;
+  }
+
+  return (
+    <p className="whitespace-pre-wrap text-sm">
+      {text.slice(0, idx)}
+      <mark ref={markRef}>{text.slice(idx, idx + highlight.length)}</mark>
+      {text.slice(idx + highlight.length)}
+    </p>
+  );
+}
+
+function YoutubeEmbed({ origin, startSec }: { origin: string; startSec?: number }) {
+  const videoId = extractYoutubeId(origin);
+  if (!videoId) {
+    return <p className="text-sm text-muted-foreground">Could not load video.</p>;
+  }
+  const src = `https://www.youtube.com/embed/${videoId}?start=${Math.floor(startSec ?? 0)}&autoplay=1`;
+  return (
+    <iframe
+      src={src}
+      className="aspect-video w-full rounded-lg"
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+      allowFullScreen
+    />
+  );
+}
+
+export function SourceViewer({ citation, onClose }: SourceViewerProps) {
+  const [source, setSource] = useState<SourceDetail | null>(null);
+  const [chunk, setChunk] = useState<ChunkDetail | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!citation) return;
+    let cancelled = false;
+
+    async function load() {
+      setLoading(true);
+      try {
+        const [s, c] = await Promise.all([
+          fetch(`/api/sources/${citation!.sourceId}`).then((r) => r.json()),
+          fetch(`/api/chunks/${citation!.chunkId}`).then((r) => r.json()),
+        ]);
+        if (!cancelled) {
+          setSource(s);
+          setChunk(c);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [citation]);
+
+  return (
+    <Sheet
+      open={!!citation}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <SheetContent className="flex w-full flex-col sm:max-w-2xl">
+        <SheetHeader>
+          <SheetTitle className="truncate">{source?.title ?? "Loading…"}</SheetTitle>
+        </SheetHeader>
+
+        <div className="flex-1 overflow-y-auto px-4 pb-4">
+          {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
+
+          {!loading && source?.type === "pdf" && (
+            <PdfViewer
+              fileUrl={`/api/sources/${source.id}/file`}
+              page={chunk?.metadata?.page}
+              highlightText={chunk?.content}
+            />
+          )}
+
+          {!loading && (source?.type === "text" || source?.type === "vtt") && (
+            <HighlightedText text={source.rawContent ?? ""} highlight={chunk?.content ?? ""} />
+          )}
+
+          {!loading && source?.type === "url" && (
+            <div className="flex flex-col gap-3">
+              {source.origin && (
+                <a
+                  href={source.origin}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-primary underline"
+                >
+                  Open original ↗
+                </a>
+              )}
+              <HighlightedText text={source.rawContent ?? ""} highlight={chunk?.content ?? ""} />
+            </div>
+          )}
+
+          {!loading && source?.type === "youtube" && source.origin && (
+            <YoutubeEmbed origin={source.origin} startSec={chunk?.metadata?.startSec} />
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
