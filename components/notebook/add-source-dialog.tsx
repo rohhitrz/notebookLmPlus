@@ -1,8 +1,18 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Plus, Upload } from "lucide-react";
+import {
+  ArrowLeft,
+  Captions,
+  FileText,
+  Globe,
+  Plus,
+  Type,
+  Upload,
+  Video,
+} from "lucide-react";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -12,7 +22,6 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import type { SourceListItem } from "@/lib/types";
 
@@ -21,16 +30,23 @@ interface AddSourceDialogProps {
   onAdded: (items: SourceListItem[]) => void;
 }
 
-function extToType(filename: string): "pdf" | "text" | "vtt" | null {
-  const ext = filename.split(".").pop()?.toLowerCase();
-  if (ext === "pdf") return "pdf";
-  if (ext === "txt") return "text";
-  if (ext === "vtt") return "vtt";
-  return null;
-}
+type Mode = "pdf" | "youtube" | "url" | "text" | "vtt";
+
+const TILES: {
+  mode: Mode;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+}[] = [
+  { mode: "pdf", label: "PDF", icon: FileText },
+  { mode: "youtube", label: "YT Link", icon: Video },
+  { mode: "url", label: "Web Link", icon: Globe },
+  { mode: "text", label: "Text", icon: Type },
+  { mode: "vtt", label: "VTT", icon: Captions },
+];
 
 export function AddSourceDialog({ notebookId, onAdded }: AddSourceDialogProps) {
   const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<Mode | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const [file, setFile] = useState<File | null>(null);
@@ -47,6 +63,14 @@ export function AddSourceDialog({ notebookId, onAdded }: AddSourceDialogProps) {
     setPasteTitle("");
     setPasteText("");
     if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  function handleOpenChange(next: boolean) {
+    setOpen(next);
+    if (!next) {
+      setMode(null);
+      resetForm();
+    }
   }
 
   async function submitAndClose(request: () => Promise<Response>) {
@@ -69,8 +93,7 @@ export function AddSourceDialog({ notebookId, onAdded }: AddSourceDialogProps) {
           errorMessage: null,
         })),
       );
-      resetForm();
-      setOpen(false);
+      handleOpenChange(false);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to add source");
     } finally {
@@ -78,11 +101,11 @@ export function AddSourceDialog({ notebookId, onAdded }: AddSourceDialogProps) {
     }
   }
 
-  function handleUploadSubmit() {
+  function handleFileSubmit(type: "pdf" | "vtt") {
     if (!file) return;
-    const type = extToType(file.name);
-    if (!type) {
-      toast.error("Only .pdf, .txt, and .vtt files are supported");
+    const ext = file.name.split(".").pop()?.toLowerCase();
+    if (ext !== type) {
+      toast.error(`Please choose a .${type} file`);
       return;
     }
     const form = new FormData();
@@ -126,11 +149,13 @@ export function AddSourceDialog({ notebookId, onAdded }: AddSourceDialogProps) {
     );
   }
 
+  const activeTile = TILES.find((t) => t.mode === mode);
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger
         render={
-          <Button size="sm" variant="outline">
+          <Button size="sm">
             <Plus className="size-4" />
             Add source
           </Button>
@@ -138,61 +163,96 @@ export function AddSourceDialog({ notebookId, onAdded }: AddSourceDialogProps) {
       />
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Add a source</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            {mode && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Back"
+                onClick={() => setMode(null)}
+              >
+                <ArrowLeft className="size-4" />
+              </Button>
+            )}
+            {mode && activeTile ? `Add ${activeTile.label}` : "Add a source"}
+          </DialogTitle>
         </DialogHeader>
-        <Tabs defaultValue="upload">
-          <TabsList>
-            <TabsTrigger value="upload">Upload</TabsTrigger>
-            <TabsTrigger value="url">URL</TabsTrigger>
-            <TabsTrigger value="youtube">YouTube</TabsTrigger>
-            <TabsTrigger value="paste">Paste text</TabsTrigger>
-          </TabsList>
 
-          <TabsContent value="upload" className="flex flex-col gap-3">
-            <label
-              htmlFor="source-file"
-              className="flex cursor-pointer flex-col items-center gap-2 rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground hover:bg-muted"
-            >
-              <Upload className="size-6" />
-              {file ? file.name : "Click to choose a .pdf, .txt, or .vtt file"}
-            </label>
-            <input
-              id="source-file"
-              ref={fileInputRef}
-              type="file"
-              accept=".pdf,.txt,.vtt"
-              className="hidden"
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            />
-            <Button onClick={handleUploadSubmit} disabled={!file || submitting}>
-              {submitting ? "Uploading…" : "Upload"}
-            </Button>
-          </TabsContent>
+        {!mode && (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {TILES.map(({ mode: m, label, icon: Icon }) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setMode(m)}
+                className={cn(
+                  "flex aspect-square flex-col items-center justify-center gap-2 rounded-xl border bg-card text-sm font-medium",
+                  "transition-colors hover:border-primary/40 hover:bg-accent hover:text-accent-foreground",
+                )}
+              >
+                <Icon className="size-7 text-primary" />
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
 
-          <TabsContent value="url" className="flex flex-col gap-3">
+        {mode === "pdf" && (
+          <FileForm
+            accept=".pdf"
+            hint="Click to choose a .pdf file"
+            file={file}
+            fileInputRef={fileInputRef}
+            onFile={setFile}
+            onSubmit={() => handleFileSubmit("pdf")}
+            submitting={submitting}
+          />
+        )}
+
+        {mode === "vtt" && (
+          <FileForm
+            accept=".vtt"
+            hint="Click to choose a .vtt transcript file"
+            file={file}
+            fileInputRef={fileInputRef}
+            onFile={setFile}
+            onSubmit={() => handleFileSubmit("vtt")}
+            submitting={submitting}
+          />
+        )}
+
+        {mode === "url" && (
+          <div className="flex flex-col gap-3">
             <Input
+              autoFocus
               placeholder="https://example.com/article"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
             />
             <Button onClick={handleUrlSubmit} disabled={!url.trim() || submitting}>
-              {submitting ? "Adding…" : "Add URL"}
+              {submitting ? "Adding…" : "Add web link"}
             </Button>
-          </TabsContent>
+          </div>
+        )}
 
-          <TabsContent value="youtube" className="flex flex-col gap-3">
+        {mode === "youtube" && (
+          <div className="flex flex-col gap-3">
             <Input
-              placeholder="https://www.youtube.com/watch?v=..."
+              autoFocus
+              placeholder="https://www.youtube.com/watch?v=…"
               value={youtubeUrl}
               onChange={(e) => setYoutubeUrl(e.target.value)}
             />
             <Button onClick={handleYoutubeSubmit} disabled={!youtubeUrl.trim() || submitting}>
               {submitting ? "Adding…" : "Add video"}
             </Button>
-          </TabsContent>
+          </div>
+        )}
 
-          <TabsContent value="paste" className="flex flex-col gap-3">
+        {mode === "text" && (
+          <div className="flex flex-col gap-3">
             <Input
+              autoFocus
               placeholder="Title"
               value={pasteTitle}
               onChange={(e) => setPasteTitle(e.target.value)}
@@ -209,9 +269,50 @@ export function AddSourceDialog({ notebookId, onAdded }: AddSourceDialogProps) {
             >
               {submitting ? "Adding…" : "Add text"}
             </Button>
-          </TabsContent>
-        </Tabs>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+function FileForm({
+  accept,
+  hint,
+  file,
+  fileInputRef,
+  onFile,
+  onSubmit,
+  submitting,
+}: {
+  accept: string;
+  hint: string;
+  file: File | null;
+  fileInputRef: React.RefObject<HTMLInputElement | null>;
+  onFile: (f: File | null) => void;
+  onSubmit: () => void;
+  submitting: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <label
+        htmlFor="source-file"
+        className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:bg-accent"
+      >
+        <Upload className="size-6" />
+        {file ? file.name : hint}
+      </label>
+      <input
+        id="source-file"
+        ref={fileInputRef}
+        type="file"
+        accept={accept}
+        className="hidden"
+        onChange={(e) => onFile(e.target.files?.[0] ?? null)}
+      />
+      <Button onClick={onSubmit} disabled={!file || submitting}>
+        {submitting ? "Uploading…" : "Upload"}
+      </Button>
+    </div>
   );
 }

@@ -9,6 +9,7 @@ import { SourceList } from "@/components/notebook/source-list";
 import { SourceViewer } from "@/components/notebook/source-viewer";
 import { StudioPanel } from "@/components/notebook/studio-panel";
 import { Button } from "@/components/ui/button";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { ArtifactListItem, Citation, DisplayMessage, SourceListItem } from "@/lib/types";
@@ -52,7 +53,10 @@ export function NotebookShell({
           </Link>
           <span className="truncate font-semibold">{notebook.title}</span>
         </div>
-        <UserButton />
+        <div className="flex items-center gap-1">
+          <ThemeToggle />
+          <UserButton />
+        </div>
       </header>
 
       <div className="flex flex-1 overflow-hidden">

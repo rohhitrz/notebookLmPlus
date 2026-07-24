@@ -70,6 +70,28 @@ export interface ChunkDetail {
 export const ROADMAP_ITEM_STATUSES = ["todo", "in_progress", "done"] as const;
 export type RoadmapItemStatus = (typeof ROADMAP_ITEM_STATUSES)[number];
 
+// A generated, web-grounded lesson for one roadmap item ("chapter").
+export const chapterCitationSchema = z.object({
+  n: z.number().int(),
+  title: z.string(),
+  url: z.string(),
+});
+export type ChapterCitation = z.infer<typeof chapterCitationSchema>;
+
+export const chapterSectionSchema = z.object({
+  heading: z.string(),
+  body: z.string(),
+});
+export type ChapterSection = z.infer<typeof chapterSectionSchema>;
+
+export const chapterContentSchema = z.object({
+  overview: z.string(),
+  sections: z.array(chapterSectionSchema),
+  keyTakeaways: z.array(z.string()),
+  citations: z.array(chapterCitationSchema),
+});
+export type ChapterContent = z.infer<typeof chapterContentSchema>;
+
 export const roadmapItemSchema = z.object({
   id: z.string(),
   order: z.number().int(),
@@ -83,6 +105,8 @@ export const roadmapItemSchema = z.object({
     }),
   ),
   chatId: z.string().uuid().nullable(),
+  // Lesson content, generated on demand the first time the chapter is opened.
+  content: chapterContentSchema.nullable().default(null),
 });
 export type RoadmapItem = z.infer<typeof roadmapItemSchema>;
 

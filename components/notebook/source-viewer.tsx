@@ -1,9 +1,19 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { PdfViewer } from "@/components/notebook/pdf-viewer";
 import type { ChunkDetail, Citation, SourceDetail } from "@/lib/types";
+
+// react-pdf touches browser-only globals (DOMMatrix) at module load, which
+// crashes during server rendering. Load it only on the client.
+const PdfViewer = dynamic(
+  () => import("@/components/notebook/pdf-viewer").then((m) => m.PdfViewer),
+  {
+    ssr: false,
+    loading: () => <p className="p-8 text-sm text-muted-foreground">Loading viewer…</p>,
+  },
+);
 
 interface SourceViewerProps {
   citation: Citation | null;

@@ -15,14 +15,14 @@ interface RoadmapPanelProps {
   goal: string;
   items: RoadmapItem[];
   sources: RoadmapSource[];
-  activeChatId?: string;
-  onStartChat: (item: RoadmapItem) => void;
-  onContinueChat: (chatId: string) => void;
+  activeItemId?: string;
+  onOpen: (item: RoadmapItem) => void;
 }
 
 function StatusIcon({ status }: { status: RoadmapItem["status"] }) {
-  if (status === "done") return <Check className="size-4 shrink-0 text-green-600" />;
-  if (status === "in_progress") return <Loader2 className="size-4 shrink-0 text-muted-foreground" />;
+  if (status === "done") return <Check className="size-4 shrink-0 text-success" />;
+  if (status === "in_progress")
+    return <Loader2 className="size-4 shrink-0 text-primary" />;
   return <Circle className="size-4 shrink-0 text-muted-foreground" />;
 }
 
@@ -36,11 +36,12 @@ export function RoadmapPanel({
   goal,
   items,
   sources,
-  activeChatId,
-  onStartChat,
-  onContinueChat,
+  activeItemId,
+  onOpen,
 }: RoadmapPanelProps) {
   const sourceById = new Map(sources.map((s) => [s.id, s]));
+  const done = items.filter((i) => i.status === "done").length;
+  const pct = items.length ? Math.round((done / items.length) * 100) : 0;
 
   return (
     <div className="flex flex-col gap-3 p-4">
@@ -48,6 +49,23 @@ export function RoadmapPanel({
         <h2 className="text-sm font-semibold text-muted-foreground">Roadmap</h2>
         {goal && <p className="mt-1 text-sm">{goal}</p>}
       </div>
+
+      {items.length > 0 && (
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span>Progress</span>
+            <span>
+              {done}/{items.length} chapters · {pct}%
+            </span>
+          </div>
+          <div className="h-2 overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-primary transition-all"
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+        </div>
+      )}
 
       {items.length === 0 ? (
         <p className="mt-8 text-center text-sm text-muted-foreground">No roadmap yet.</p>
@@ -57,7 +75,7 @@ export function RoadmapPanel({
             <li
               key={item.id}
               className={`rounded-md border p-3 ${
-                item.chatId && item.chatId === activeChatId ? "border-primary" : ""
+                item.id === activeItemId ? "border-primary ring-1 ring-primary/40" : ""
               }`}
             >
               <div className="flex items-start gap-2">
@@ -95,15 +113,17 @@ export function RoadmapPanel({
                   )}
 
                   <div className="mt-2">
-                    {item.chatId ? (
-                      <Button size="sm" variant="outline" onClick={() => onContinueChat(item.chatId!)}>
-                        Continue chat
-                      </Button>
-                    ) : (
-                      <Button size="sm" onClick={() => onStartChat(item)}>
-                        Start chat
-                      </Button>
-                    )}
+                    <Button
+                      size="sm"
+                      variant={item.id === activeItemId ? "default" : "outline"}
+                      onClick={() => onOpen(item)}
+                    >
+                      {item.status === "done"
+                        ? "Review chapter"
+                        : item.content || item.chatId
+                          ? "Continue"
+                          : "Study chapter"}
+                    </Button>
                   </div>
                 </div>
               </div>

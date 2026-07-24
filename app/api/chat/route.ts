@@ -9,6 +9,7 @@ import { chats, messages } from "@/lib/db/schema";
 import {
   buildTeachingSystemPrompt,
   extractTopicAction,
+  getOrGenerateChapter,
   getTeachingContext,
   markRoadmapItemDone,
   updateChatSummary,
@@ -70,28 +71,42 @@ export const POST = apiHandler(async (req: NextRequest) => {
 
         const { standaloneQuestion, chunks } = await retrieve(notebookId, message, history);
 
-        if (chunks.length === 0) {
-          send("token", { text: NO_SOURCES_MESSAGE });
-          await db.insert(messages).values({
-            chatId,
-            role: "assistant",
-            content: NO_SOURCES_MESSAGE,
-            citations: [],
-          });
-          send("citations", { citations: [] });
-          send("done", {});
-          controller.close();
-          return;
-        }
-
         if (topic) {
           const context = await getTeachingContext(notebookId, chatId, topic);
+
+          // Learning chats teach from the chapter's web-grounded lesson. Generate
+          // it on the fly if the student jumped straight into chat before it was
+          // prepared, so the tutor always has material even with no notebook sources.
+          let chapter = context.chapter;
+          if (!chapter && context.currentItemId) {
+            try {
+              chapter = await getOrGenerateChapter(notebookId, context.currentItemId);
+            } catch (err) {
+              console.error("[learn] on-the-fly chapter generation failed", err);
+            }
+          }
+
+          if (!chapter && chunks.length === 0) {
+            send("token", { text: NO_SOURCES_MESSAGE });
+            await db.insert(messages).values({
+              chatId,
+              role: "assistant",
+              content: NO_SOURCES_MESSAGE,
+              citations: [],
+            });
+            send("citations", { citations: [] });
+            send("done", {});
+            controller.close();
+            return;
+          }
+
           const system = buildTeachingSystemPrompt({
             concept: context.concept,
             why: context.why,
             roadmap: context.roadmapItems,
             siblingSummaries: context.siblingSummaries,
             chunks,
+            chapter,
           });
 
           if (process.env.NODE_ENV !== "production") {
@@ -126,6 +141,20 @@ export const POST = apiHandler(async (req: NextRequest) => {
             .join("\n");
           await updateChatSummary(chatId, transcript);
 
+          send("done", {});
+          controller.close();
+          return;
+        }
+
+        if (chunks.length === 0) {
+          send("token", { text: NO_SOURCES_MESSAGE });
+          await db.insert(messages).values({
+            chatId,
+            role: "assistant",
+            content: NO_SOURCES_MESSAGE,
+            citations: [],
+          });
+          send("citations", { citations: [] });
           send("done", {});
           controller.close();
           return;

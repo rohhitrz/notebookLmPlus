@@ -3,17 +3,14 @@
 import { useEffect } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import {
-  AlertCircle,
-  Check,
   FileText,
   Globe,
-  Loader2,
   MoreVertical,
   RotateCw,
   Trash2,
   Video,
 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -38,36 +35,38 @@ const TYPE_ICON: Record<SourceListItem["type"], React.ComponentType<{ className?
   youtube: Video,
 };
 
-function StatusBadge({ status, errorMessage }: { status: SourceStatus; errorMessage: string | null }) {
-  if (status === "ready") {
-    return (
-      <Badge variant="secondary">
-        <Check className="size-3" />
-        Ready
-      </Badge>
-    );
-  }
-  if (status === "error") {
-    return (
-      <Badge variant="destructive" title={errorMessage ?? undefined}>
-        <AlertCircle className="size-3" />
-        Error
-      </Badge>
-    );
-  }
-  if (status === "uploading") {
-    return (
-      <Badge variant="outline">
-        <Loader2 className="size-3 animate-spin" />
-        Uploading
-      </Badge>
-    );
-  }
+const STATUS_META: Record<
+  SourceStatus,
+  { label: string; dot: string; text: string; pulse: boolean }
+> = {
+  ready: { label: "Indexed", dot: "bg-success", text: "text-success", pulse: false },
+  error: { label: "Error", dot: "bg-destructive", text: "text-destructive", pulse: false },
+  uploading: { label: "Uploading", dot: "bg-warning", text: "text-warning", pulse: true },
+  extracting: { label: "Extracting", dot: "bg-warning", text: "text-warning", pulse: true },
+  chunking: { label: "Chunking", dot: "bg-warning", text: "text-warning", pulse: true },
+  embedding: { label: "Indexing", dot: "bg-warning", text: "text-warning", pulse: true },
+};
+
+function StatusDot({ status, errorMessage }: { status: SourceStatus; errorMessage: string | null }) {
+  const meta = STATUS_META[status];
   return (
-    <Badge variant="outline">
-      <Loader2 className="size-3 animate-spin" />
-      Indexing…
-    </Badge>
+    <span
+      className={cn("mt-0.5 flex items-center gap-1.5 text-xs", meta.text)}
+      title={status === "error" ? errorMessage ?? "Error" : meta.label}
+    >
+      <span className="relative flex size-2 shrink-0">
+        {meta.pulse && (
+          <span
+            className={cn(
+              "absolute inline-flex size-full animate-ping rounded-full opacity-75",
+              meta.dot,
+            )}
+          />
+        )}
+        <span className={cn("relative inline-flex size-2 rounded-full", meta.dot)} />
+      </span>
+      {meta.label}
+    </span>
   );
 }
 
@@ -134,7 +133,7 @@ export function SourceList({ notebookId, sources, onSourcesChange }: SourceListP
                   <p className="truncate text-sm" title={source.title}>
                     {source.title}
                   </p>
-                  <StatusBadge status={source.status} errorMessage={source.errorMessage} />
+                  <StatusDot status={source.status} errorMessage={source.errorMessage} />
                 </div>
                 <DropdownMenu>
                   <DropdownMenuTrigger

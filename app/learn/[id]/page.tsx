@@ -60,7 +60,6 @@ export default async function LearnPage({ params }: Params) {
       initialItems={items}
       initialSuggestedResources={suggestedResources}
       sources={sourceRows}
-      initialChats={topicChats.map((c) => ({ id: c.id, concept: c.topic! }))}
       initialMessagesByChat={chatMessages}
     />
   );

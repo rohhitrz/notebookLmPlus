@@ -5,12 +5,14 @@ import { sources } from "@/lib/db/schema";
 import type { ChunkMetadata } from "@/lib/ingest/types";
 import { chat, chatJSON, embedBatch, type ChatMessage } from "@/lib/llm";
 import type { Citation } from "@/lib/types";
-import { searchChunks } from "@/lib/vectorstore";
+import { searchChunks, type ChunkSearchResult } from "@/lib/vectorstore";
 
 export const NO_SOURCES_MESSAGE = "I couldn't find this in your sources.";
 
 const RERANK_KEEP = 8;
 const MIN_RERANK_SCORE = 4;
+// Cap on the merged candidate pool sent to the reranker across all query variants.
+const MAX_CANDIDATES = 30;
 
 export interface RetrievedChunk {
   chunkId: string;
@@ -20,25 +22,49 @@ export interface RetrievedChunk {
   metadata: ChunkMetadata;
 }
 
-async function rewriteStandaloneQuestion(
+const queryTransformSchema = z.object({
+  standalone: z.string(),
+  searchQueries: z.array(z.string()).min(1).max(4),
+});
+
+// Turns a raw user message into (a) a clean, self-contained question and (b) a
+// set of search-query variants. This runs on EVERY message — including the first
+// one — so typos, vague phrasing, and follow-up references all get normalized
+// before retrieval, and the variants widen recall when the sources word things
+// differently than the user did.
+async function transformQuery(
   question: string,
   history: ChatMessage[],
-): Promise<string> {
-  if (history.length === 0) return question;
+): Promise<{ standalone: string; searchQueries: string[] }> {
+  const transcript = history.length
+    ? history.map((m) => `${m.role}: ${m.content}`).join("\n")
+    : "(no earlier messages)";
 
-  const transcript = history.map((m) => `${m.role}: ${m.content}`).join("\n");
-  const prompt = `Given the conversation history below, rewrite the latest user question as a standalone question that includes all necessary context from the conversation. Respond with ONLY the rewritten question, no explanation or quotes.
+  const prompt = `You prepare a user's question for searching a knowledge base. Return JSON with two fields:
 
-Conversation history:
+1. "standalone": rewrite the latest question into one clear, self-contained question. Fix spelling and grammar, expand obvious abbreviations, and resolve references ("it", "that", "they", "this") using the conversation. Preserve the user's original intent — do NOT answer the question.
+2. "searchQueries": 2-4 short retrieval queries that would surface the passages needed to answer it. Vary the wording and include synonyms and key terms, since the source text may phrase things differently than the user did.
+
+Conversation so far:
 ${transcript}
 
 Latest question: ${question}`;
 
-  let rewritten = "";
-  for await (const piece of chat([{ role: "user", content: prompt }])) {
-    rewritten += piece;
+  try {
+    const result = await chatJSON(prompt, queryTransformSchema);
+    const standalone = result.standalone.trim() || question;
+    // Always keep the user's original wording as a search variant: it guards
+    // against the model mis-"correcting" a domain term (e.g. reading "gratituty"
+    // as "gratitude" instead of the payroll term "gratuity"), since the raw
+    // spelling still embeds close to the intended term.
+    const queries = [standalone, question, ...result.searchQueries]
+      .map((q) => q.trim())
+      .filter(Boolean);
+    return { standalone, searchQueries: [...new Set(queries)].slice(0, 6) };
+  } catch {
+    // If transformation fails, fall back to searching the raw question.
+    return { standalone: question, searchQueries: [question] };
   }
-  return rewritten.trim() || question;
 }
 
 const rerankSchema = z.object({
@@ -79,10 +105,28 @@ export async function retrieve(
   history: ChatMessage[],
   opts: { keep?: number } = {},
 ): Promise<RetrievalResult> {
-  const standaloneQuestion = await rewriteStandaloneQuestion(question, history);
+  const { standalone: standaloneQuestion, searchQueries } = await transformQuery(
+    question,
+    history,
+  );
 
-  const [queryEmbedding] = await embedBatch([standaloneQuestion]);
-  const matches = await searchChunks(notebookId, queryEmbedding);
+  // Search every query variant and merge, keeping each chunk's best similarity.
+  const embeddings = await embedBatch(searchQueries);
+  const perQuery = await Promise.all(
+    embeddings.map((embedding) => searchChunks(notebookId, embedding)),
+  );
+
+  const byId = new Map<string, ChunkSearchResult>();
+  for (const list of perQuery) {
+    for (const match of list) {
+      const existing = byId.get(match.id);
+      if (!existing || match.similarity > existing.similarity) byId.set(match.id, match);
+    }
+  }
+  const matches = [...byId.values()]
+    .sort((a, b) => b.similarity - a.similarity)
+    .slice(0, MAX_CANDIDATES);
+
   if (matches.length === 0) return { standaloneQuestion, chunks: [] };
 
   const sourceIds = [...new Set(matches.map((m) => m.sourceId))];
