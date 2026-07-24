@@ -1,36 +1,145 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# NotebookLM-Plus
 
-## Getting Started
+A multi-source RAG notebook app. Feed it PDFs, plain text, web pages, YouTube
+videos, or VTT transcripts — each source is extracted, chunked, embedded, and
+stored in a per-notebook vector index. Ask questions in natural language and get
+answers where **every claim is cited and clickable**: a citation jumps a PDF to
+the right page, a YouTube video to the right timestamp, or highlights the exact
+passage in a transcript. Every notebook is an isolated knowledge base.
 
-First, run the development server:
+On top of the core RAG engine sit two advanced modes:
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- **Learn Mode** — turn a goal + sources into an ordered learning roadmap, then
+  spin up one scoped tutoring chat per concept (so the model never has to hold a
+  whole subject in one context window), cross-referencing summaries from sibling
+  chats.
+- **Studio** — generate a two-host AI podcast (male/female voices) narrating your
+  sources, and dense PowerPoint decks up to 30 slides, built batch-by-batch with
+  fresh retrieval per batch.
+
+## Stack
+
+| Layer | Choice |
+|---|---|
+| Framework | Next.js (App Router) + TypeScript |
+| UI | Tailwind CSS v4 + shadcn/ui (Base UI) |
+| Auth | [Clerk](https://clerk.com) (`clerkMiddleware` protects all app + API routes) |
+| Database | Supabase Postgres + [pgvector](https://github.com/pgvector/pgvector) (HNSW, cosine) via [Drizzle ORM](https://orm.drizzle.team) |
+| Storage | Supabase Storage (`sources`, `artifacts` buckets) |
+| LLM / embeddings / TTS / moderation | OpenAI (single provider, all calls go through `lib/llm.ts`) |
+| Ingest | LangChain loaders + custom splitter; `unpdf`, `@mozilla/readability`, `youtubei.js` |
+| Podcast audio | OpenAI TTS + `ffmpeg` (bundled via `ffmpeg-static`) |
+
+## Architecture
+
+```
+Source ──▶ extract ──▶ chunk ──▶ embed (OpenAI, 768-dim) ──▶ pgvector
+                                                                 │
+Question ──▶ standalone-rewrite ──▶ vector search ──▶ LLM rerank ┘
+          ──▶ grounded answer with [n] citations ──▶ click ──▶ jump to page / timestamp / passage
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Key design rules (see [`CLAUDE.md`](CLAUDE.md) for the full list):
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- Every vector query filters by `notebook_id`; ownership is enforced by the
+  notebook's `user_id`. Other users' resources return **404**, never 403.
+- Retrieved source text is treated as **data, not instructions** — chunks are
+  wrapped in quoted blocks and the model is told to ignore instructions inside
+  them.
+- Every assistant answer carries citations mapped to chunk IDs. The only
+  citation-free answer allowed is the explicit "not found in your sources".
+- Embeddings are locked to **768 dimensions** to match the pgvector column;
+  changing the model/dimension requires re-embedding every chunk.
+- Long-running work (indexing, podcast, PPTX) runs async — the request returns
+  immediately and the UI polls a status endpoint.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Project layout
 
-## Learn More
+```
+app/                     App Router pages + API route handlers
+  api/                   chat, sources, studio (podcast/pptx), learn, artifacts
+  notebook/[id]/         notebook workspace (chat + studio)
+  learn/[id]/            learning project (roadmap + scoped chats)
+lib/
+  llm.ts                 the ONLY module that calls OpenAI (chat, JSON, embeddings)
+  rag.ts                 retrieval, rerank, prompting, citation parsing
+  vectorstore.ts         pgvector search / upsert / delete
+  ingest/                extractors (pdf, text, url, youtube, vtt), chunker, pipeline
+    potoken.ts           mints a YouTube PO token so caption downloads work
+  learn.ts               roadmap generation + scoped teaching context
+  studio/                podcast, pptx, tts, summarize, moderation
+  db/                    Drizzle schema + queries
+components/               notebook, learn, studio, and shared UI
+```
 
-To learn more about Next.js, take a look at the following resources:
+## Getting started
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### 1. Prerequisites
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- Node.js 20+
+- A [Supabase](https://supabase.com) project (Postgres + Storage)
+- An [OpenAI](https://platform.openai.com) API key
+- A [Clerk](https://clerk.com) application
 
-## Deploy on Vercel
+### 2. Supabase setup
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Enable pgvector and create the two storage buckets:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```sql
+create extension if not exists vector;
+```
+
+In the Supabase dashboard, create storage buckets named **`sources`** and
+**`artifacts`** (private).
+
+### 3. Environment
+
+Copy `.env.example` to `.env` and fill in the values:
+
+```bash
+cp .env.example .env
+```
+
+| Variable | Purpose |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable (client) key |
+| `SUPABASE_SECRET_KEY` | Supabase secret key — server-only, used for Storage |
+| `DATABASE_URL` | Postgres connection string |
+| `OPENAI_API_KEY` | OpenAI API key |
+| `OPENAI_CHAT_MODEL` | Chat / structured-output / rerank model |
+| `OPENAI_EMBED_MODEL` | Embedding model (used at 768 dims) |
+| `OPENAI_TTS_MODEL` | Podcast text-to-speech model |
+| `OPENAI_MODERATION_MODEL` | Moderation model for Studio content |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY` | Clerk auth |
+| `NEXT_PUBLIC_APP_URL` | App base URL (e.g. `http://localhost:3000`) |
+
+### 4. Install, migrate, run
+
+```bash
+npm install
+npm run db:push      # apply the Drizzle schema to your database
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000).
+
+## Scripts
+
+| Script | Description |
+|---|---|
+| `npm run dev` | Start the dev server |
+| `npm run build` | Production build (must pass with zero TS errors) |
+| `npm run start` | Start the production server |
+| `npm run lint` | ESLint |
+| `npm run db:generate` | Generate a Drizzle migration from the schema |
+| `npm run db:push` | Push the schema directly to the database |
+
+## Notes
+
+- **YouTube captions** require a proof-of-origin (PO) token; without one YouTube
+  returns an empty caption body. `lib/ingest/potoken.ts` mints one locally via
+  BotGuard and caches it — the first YouTube ingest after a server start takes a
+  few extra seconds, subsequent ones reuse the cached session.
+- **Podcast generation** shells out to a bundled `ffmpeg` binary to concatenate
+  per-turn audio; no system ffmpeg install is required.
