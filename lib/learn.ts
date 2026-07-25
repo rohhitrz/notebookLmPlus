@@ -368,13 +368,16 @@ export async function generateChapterImage(
   if (!item?.content) throw new Error("Chapter has not been generated yet");
   if (item.content.imageUrl) return item.content.imageUrl;
 
-  // Build an infographic-style prompt (flow + term cards + takeaway) from the
-  // actual lesson text, so the image is a usable visual summary, not just decor.
+  // Build an infographic-style prompt (flow + term cards) from the actual
+  // lesson text, so the image is a usable visual summary, not just decor.
   const lessonText = item.content.body ?? item.content.overview ?? item.concept;
   const prompt = await buildChapterImagePrompt(item.concept, lessonText);
   await assertContentSafe(prompt, item.concept);
 
-  const png = await generateImage(prompt);
+  // "high" quality — the sparse-text infographic prompt has few enough words
+  // that the extra render time (still under the route's 60s budget) buys much
+  // more reliable, legible text than "medium" does.
+  const png = await generateImage(prompt, { quality: "high" });
   const imageUrl = await uploadLearnImage(`${notebookId}/${roadmapItemId}.png`, png);
 
   // Re-read to avoid clobbering a concurrent chapter/status update, then patch

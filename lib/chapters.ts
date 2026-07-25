@@ -94,16 +94,17 @@ export function streamChapterBody(
 
 const infographicSpecSchema = z.object({
   title: z.string(),
-  gist: z.string(),
   // A process/pipeline/sequence if the topic has one, otherwise empty.
   flow: z.array(z.string()),
   keyTerms: z.array(z.object({ term: z.string(), definition: z.string() })),
 });
 
 // Turns a finished lesson into an image-generation prompt for a study-aid
-// INFOGRAPHIC (flow + labeled term cards + takeaway) rather than a decorative
+// INFOGRAPHIC (flow + labeled term cards) rather than a decorative
 // illustration. First extracts a compact structured spec so the image model has
-// real, concise content to lay out and label.
+// real content to lay out — kept deliberately SHORT, because image models like
+// gpt-image-1 render short, large, sparse text reliably but garble dense small
+// text (misspellings, mangled letters) once a layout has too many words.
 export async function buildChapterImagePrompt(
   concept: string,
   lessonText: string,
@@ -111,12 +112,10 @@ export async function buildChapterImagePrompt(
   const source = lessonText.replace(/\[\d+\]/g, "").slice(0, 4000);
 
   const spec = await chatJSON(
-    `From the lesson below, extract a compact spec for a visual-summary infographic of "${concept}". Return:
-- title: the topic title (<= 6 words).
-- gist: one plain-language sentence capturing the core idea.
-- flow: 3-6 short, ordered stage labels (<= 4 words each) IF the topic involves a process, pipeline, sequence, lifecycle, or cause -> effect; otherwise an empty array.
-- keyTerms: 3-5 of the most important terms, each with a very short definition (<= 12 words).
-Keep every string short enough to fit legibly inside a diagram.
+    `From the lesson below, extract a MINIMAL spec for a visual-summary infographic of "${concept}". Be ruthless about brevity — every word you return will be rendered as large on-image text, and image-generation models garble long or dense text. Return:
+- title: the topic title, at most 3 words.
+- flow: at most 4 ordered stage labels, EACH AT MOST 2 WORDS, IF the topic involves a clear process, pipeline, sequence, lifecycle, or cause -> effect; otherwise an empty array. Skip this if no natural sequence exists — do not force one.
+- keyTerms: exactly 3 of the most important terms (single word or short phrase, at most 3 words each), each with a definition of AT MOST 5 WORDS (a fragment, not a sentence).
 
 Lesson:
 ${source}`,
@@ -124,21 +123,23 @@ ${source}`,
   );
 
   const flowLine = spec.flow.length
-    ? `- A clear flow of connected, arrow-linked stages: ${spec.flow.join(" -> ")}.\n`
+    ? `- A horizontal flow of ${spec.flow.length} large labeled boxes connected by arrows, one short label per box: ${spec.flow.join(" -> ")}.\n`
     : "";
-  const termsLines = spec.keyTerms.map((t) => `  - ${t.term}: ${t.definition}`).join("\n");
+  const termsLines = spec.keyTerms
+    .map((t) => `  - Card labeled "${t.term}" with the short caption "${t.definition}"`)
+    .join("\n");
 
-  return `Create a clean, modern educational INFOGRAPHIC that works as a one-glance visual summary / cheat-sheet a student can keep as a reference for this topic.
+  return `Create a clean, modern educational INFOGRAPHIC poster that works as a one-glance visual summary a student can keep as a reference for this topic.
 
-Title header: ${spec.title}
-Core idea to convey: ${spec.gist}
+Title header, in large bold text: ${spec.title}
 
-Lay it out clearly, using boxes, cards, small icons and connecting arrows where they help:
-${flowLine}- A row or grid of labeled cards, each a bold TERM with its one-line definition:
+Layout, using simple boxes/cards, small icons, and connecting arrows:
+${flowLine}- Exactly 3 cards in a row, each with ONE large bold term and ONE short caption beneath it:
 ${termsLines}
-- A short highlighted "key takeaway" callout summarizing the core idea.
 
-Style: flat vector infographic / diagram, one cohesive simple color palette, clean sans-serif text that is fully legible and correctly spelled, generous whitespace, high contrast, clearly separated sections. No photorealism, no watermark, no gibberish text.`;
+Strict text rules: use EXTREMELY SPARSE text — only the words listed above, nothing else, no extra sentences or paragraphs anywhere in the image. Every word must be large, bold, and short enough to render perfectly legibly and spelled exactly as given. Prefer more visual space (icons, color blocks, arrows, whitespace) over any additional text.
+
+Style: flat vector infographic, one cohesive simple color palette, clean sans-serif type, generous whitespace, high contrast. No photorealism, no watermark, no filler text, no decorative gibberish text.`;
 }
 
 /**

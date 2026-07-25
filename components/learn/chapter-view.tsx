@@ -220,13 +220,21 @@ function Lesson({
   // into item.content).
   const [streamedBody, setStreamedBody] = useState("");
   const [streaming, setStreaming] = useState(false);
-  const requested = useRef(false);
+  const [attempt, setAttempt] = useState(0);
 
   const content = item.content;
 
+  // Keep the latest onChapter without making it an effect dependency. If it were
+  // a dependency, an unrelated parent re-render (e.g. the tutor chat being
+  // created via ensureChat) would change its identity, abort the in-flight
+  // stream, and leave the lesson stuck buffering until a manual refresh.
+  const onChapterRef = useRef(onChapter);
   useEffect(() => {
-    if (content || requested.current) return;
-    requested.current = true;
+    onChapterRef.current = onChapter;
+  });
+
+  useEffect(() => {
+    if (item.content) return; // already generated — render the stored lesson
     const controller = new AbortController();
     (async () => {
       setStreaming(true);
@@ -247,7 +255,7 @@ function Lesson({
             setStreamedBody((prev) => prev + text);
           } else if (evt.event === "done") {
             const { content: generated } = evt.data as { content: ChapterContent };
-            onChapter(item.id, generated);
+            onChapterRef.current(item.id, generated);
           } else if (evt.event === "error") {
             throw new Error((evt.data as { message: string }).message);
           }
@@ -257,11 +265,14 @@ function Lesson({
           setError(e instanceof Error ? e.message : "Failed to build chapter");
         }
       } finally {
-        setStreaming(false);
+        if (!controller.signal.aborted) setStreaming(false);
       }
     })();
     return () => controller.abort();
-  }, [content, item.id, notebookId, onChapter]);
+    // item.content is read but intentionally omitted: generation runs once per
+    // mount (or per manual retry via `attempt`), never on later content updates.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.id, notebookId, attempt]);
 
   async function markComplete() {
     const next = item.status === "done" ? "in_progress" : "done";
@@ -302,8 +313,9 @@ function Lesson({
           variant="outline"
           size="sm"
           onClick={() => {
-            requested.current = false;
             setError(null);
+            setStreamedBody("");
+            setAttempt((a) => a + 1);
           }}
         >
           Retry
