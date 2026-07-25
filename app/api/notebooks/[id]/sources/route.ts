@@ -14,6 +14,16 @@ type Params = { params: Promise<{ id: string }> };
 
 const uploadTypeSchema = z.enum(["pdf", "text", "vtt"]);
 
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // 25 MB
+
+// Only ever derive the storage key's extension from an allowlist — the raw
+// filename is attacker-controlled and must not reach the storage path.
+const EXTENSION_BY_TYPE: Record<z.infer<typeof uploadTypeSchema>, string> = {
+  pdf: "pdf",
+  text: "txt",
+  vtt: "vtt",
+};
+
 const jsonSourceSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("url"), url: z.string().url() }),
   z.object({ type: z.literal("youtube"), url: z.string().url() }),
@@ -44,17 +54,25 @@ export const POST = apiHandler(async (req: NextRequest, { params }: Params) => {
     if (!(file instanceof File) || file.size === 0) {
       return NextResponse.json({ error: "file is required" }, { status: 400 });
     }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      return NextResponse.json(
+        { error: `File is too large (max ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB).` },
+        { status: 413 },
+      );
+    }
     const titleField = form.get("title");
-    const title =
-      (typeof titleField === "string" && titleField.trim()) || file.name;
+    // Cap the stored title so a huge filename can't bloat rows or the UI.
+    const title = (
+      (typeof titleField === "string" && titleField.trim()) ||
+      file.name
+    ).slice(0, 200);
 
     const [source] = await db
       .insert(sources)
       .values({ notebookId, type, title, status: "uploading" })
       .returning();
 
-    const ext = file.name.split(".").pop() || "bin";
-    const storagePath = `${notebookId}/${source.id}.${ext}`;
+    const storagePath = `${notebookId}/${source.id}.${EXTENSION_BY_TYPE[type]}`;
     await uploadSourceFile(storagePath, file, file.type);
     await db
       .update(sources)

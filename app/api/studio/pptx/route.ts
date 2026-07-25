@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { apiHandler } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
+import { enforceRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { db } from "@/lib/db";
 import { getOwnedNotebook } from "@/lib/db/queries";
 import { artifacts } from "@/lib/db/schema";
@@ -29,6 +30,7 @@ export const POST = apiHandler(async (req: NextRequest) => {
   const { notebookId, sourceIds, focus } = bodySchema.parse(await req.json());
   await getOwnedNotebook(notebookId, userId);
 
+  enforceRateLimit(userId, RATE_LIMITS.studio);
   const [artifact] = await db
     .insert(artifacts)
     .values({ notebookId, type: "pptx", status: "generating", metadata: { topic: focus ?? null } })

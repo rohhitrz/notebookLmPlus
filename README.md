@@ -33,11 +33,12 @@ The two modes:
 | Layer | Choice |
 |---|---|
 | Framework | Next.js (App Router) + TypeScript |
-| UI | Tailwind CSS v4 + shadcn/ui (Base UI) |
-| Auth | [Clerk](https://clerk.com) (`clerkMiddleware` protects all app + API routes) |
+| UI | Tailwind CSS v4 + shadcn/ui (Base UI); Inter for UI, Source Serif 4 for lesson prose |
+| Auth | [Clerk](https://clerk.com) (`clerkMiddleware` in `proxy.ts` protects all app + API routes) |
 | Database | Supabase Postgres + [pgvector](https://github.com/pgvector/pgvector) (HNSW, cosine) via [Drizzle ORM](https://orm.drizzle.team) |
 | Storage | Supabase Storage (`sources`, `artifacts` buckets) |
-| LLM / embeddings / TTS / moderation | OpenAI (single provider, all calls go through `lib/llm.ts`) |
+| LLM / embeddings / images / TTS / moderation | OpenAI (single provider, all calls go through `lib/llm.ts`) |
+| Web search | [Tavily](https://tavily.com) — grounds every generated lesson chapter |
 | Ingest | LangChain loaders + custom splitter; `unpdf`, `@mozilla/readability`, `youtubei.js` |
 | Podcast audio | OpenAI TTS + `ffmpeg` (bundled via `ffmpeg-static`) |
 
@@ -64,6 +65,43 @@ Key design rules (see [`CLAUDE.md`](CLAUDE.md) for the full list):
 - Long-running work (indexing, podcast, PPTX) runs async — the request returns
   immediately and the UI polls a status endpoint.
 
+## Security
+
+Defence in depth, since every route touches user data and paid APIs:
+
+- **Auth on every path.** `clerkMiddleware` (`proxy.ts`) calls `auth.protect()` on
+  everything except `/sign-in` and `/sign-up`; each route handler *also* calls
+  `requireUser()` rather than trusting the middleware alone.
+- **Ownership, not just authentication.** `lib/db/queries.ts` resolves each
+  notebook, source, chunk, chat, and artifact through its owning `user_id` and
+  throws `NotFoundError` on a mismatch — other users' resources return **404**,
+  never 403, so IDs aren't enumerable.
+- **SSRF protection on URL ingest.** Adding a `url` source makes the server fetch
+  a user-supplied address, so `lib/net/safe-fetch.ts` allows only `http(s)`,
+  resolves the hostname and rejects private, loopback, link-local, CGNAT,
+  multicast, and reserved ranges (v4 and v6, including IPv4-mapped), re-validates
+  **every redirect hop**, and caps body size and time. This blocks reads of cloud
+  metadata (`169.254.169.254`), `localhost`, and internal hosts. JSDOM parses the
+  result with scripts disabled.
+- **Prompt injection.** Retrieved chunks and web sources are wrapped as quoted
+  DATA with explicit instructions to ignore any commands inside them; the tutor
+  prompt additionally refuses to leave its chapter's scope.
+- **Parameterized SQL.** Vector search uses Drizzle `sql` templates with bound
+  parameters (no string interpolation) and always filters by `notebook_id`.
+- **Input validation.** Every route body is Zod-parsed. Uploads are size-capped
+  and the storage key's extension comes from a type allowlist, never the
+  user-supplied filename.
+- **Cost containment.** `lib/rate-limit.ts` throttles the endpoints that spend
+  money (chapter build, image generation, roadmap, chat, Studio) per user.
+  Note: counters are in-memory, so they are per-instance — effective against
+  runaway retries, but back it with a shared store (e.g. Upstash Redis) if you
+  expose this publicly.
+- **Bounded error output.** Only messages we author (via `toPublicMessage`) reach
+  the client; third-party error text is logged server-side and replaced with a
+  generic message so request/config details can't leak.
+- **Secrets.** `.env*` is gitignored and untracked. The Supabase secret key is
+  server-only; storage buckets are private and served via short-lived signed URLs.
+
 ## Project layout
 
 ```
@@ -78,6 +116,9 @@ lib/
   ingest/                extractors (pdf, text, url, youtube, vtt), chunker, pipeline
     potoken.ts           mints a YouTube PO token so caption downloads work
   learn.ts               roadmap generation + scoped teaching context
+  chapters.ts            web-grounded lesson streaming + infographic prompts
+  net/safe-fetch.ts      SSRF-guarded fetch for user-supplied URLs
+  rate-limit.ts          per-user throttles on paid endpoints
   studio/                podcast, pptx, tts, summarize, moderation
   db/                    Drizzle schema + queries
 components/               notebook, learn, studio, and shared UI
@@ -120,10 +161,17 @@ cp .env.example .env
 | `OPENAI_API_KEY` | OpenAI API key |
 | `OPENAI_CHAT_MODEL` | Chat / structured-output / rerank model |
 | `OPENAI_EMBED_MODEL` | Embedding model (used at 768 dims) |
+| `OPENAI_IMAGE_MODEL` | Chapter visual-summary infographics (e.g. `gpt-image-1`) |
 | `OPENAI_TTS_MODEL` | Podcast text-to-speech model |
-| `OPENAI_MODERATION_MODEL` | Moderation model for Studio content |
+| `OPENAI_MODERATION_MODEL` | Moderation model for generated content |
+| `TAVILY_API_KEY` | Web search that grounds generated lesson chapters — **required** for learning projects |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY` | Clerk auth |
 | `NEXT_PUBLIC_APP_URL` | App base URL (e.g. `http://localhost:3000`) |
+
+Deploying to Vercel? Set all of these in **Settings → Environment Variables** and
+redeploy — new variables don't apply to existing deployments. `OPENAI_IMAGE_MODEL`
+with `gpt-image-1` requires a **verified OpenAI organization**; without one,
+lessons still render and the illustration is simply skipped.
 
 ### 4. Install, migrate, run
 

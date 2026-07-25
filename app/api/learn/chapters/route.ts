@@ -2,7 +2,9 @@ import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { apiHandler } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
+import { enforceRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { getOwnedNotebook } from "@/lib/db/queries";
+import { toPublicMessage } from "@/lib/errors";
 import { setRoadmapItemStatus, streamChapter } from "@/lib/learn";
 import { ROADMAP_ITEM_STATUSES } from "@/lib/types";
 
@@ -22,6 +24,7 @@ export const POST = apiHandler(async (req: NextRequest) => {
   const userId = await requireUser();
   const { notebookId, roadmapItemId } = generateSchema.parse(await req.json());
   await getOwnedNotebook(notebookId, userId);
+  enforceRateLimit(userId, RATE_LIMITS.chapter);
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
@@ -36,11 +39,12 @@ export const POST = apiHandler(async (req: NextRequest) => {
         }
       } catch (err) {
         console.error("[learn] chapter stream failed", err);
-        // Surface the real cause (e.g. a missing TAVILY_API_KEY / OpenAI config
-        // in production) so failures are diagnosable instead of a generic wall.
-        const message =
-          err instanceof Error ? err.message : "Failed to build this chapter. Please try again.";
-        send("error", { message });
+        // Surface recognized operational causes (e.g. a missing TAVILY_API_KEY)
+        // so production failures stay diagnosable, but never forward raw
+        // third-party error text — it can carry request or config details.
+        send("error", {
+          message: toPublicMessage(err, "Failed to build this chapter. Please try again."),
+        });
       } finally {
         controller.close();
       }

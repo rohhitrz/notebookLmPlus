@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { apiHandler } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
+import { enforceRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { getOwnedNotebook } from "@/lib/db/queries";
 import { generateChapterImage } from "@/lib/learn";
 
@@ -20,6 +21,7 @@ export const POST = apiHandler(async (req: NextRequest) => {
   const userId = await requireUser();
   const { notebookId, roadmapItemId } = imageSchema.parse(await req.json());
   await getOwnedNotebook(notebookId, userId);
+  enforceRateLimit(userId, RATE_LIMITS.chapterImage);
 
   const imageUrl = await generateChapterImage(notebookId, roadmapItemId);
   return NextResponse.json({ imageUrl });

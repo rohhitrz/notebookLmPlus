@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { apiHandler } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
+import { enforceRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { db } from "@/lib/db";
 import { getOwnedChat, getOwnedNotebook } from "@/lib/db/queries";
 import { chats, messages } from "@/lib/db/schema";
@@ -49,6 +50,7 @@ export const POST = apiHandler(async (req: NextRequest) => {
     await req.json(),
   );
   await getOwnedNotebook(notebookId, userId);
+  enforceRateLimit(userId, RATE_LIMITS.chat);
 
   let chatId = chatIdInput;
   let history: ChatMessage[] = [];

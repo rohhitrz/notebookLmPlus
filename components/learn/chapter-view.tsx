@@ -97,7 +97,7 @@ function ChapterImage({
         <img
           src={imageUrl}
           alt={`Visual summary of ${item.concept}`}
-          className="aspect-[3/2] w-full bg-white object-contain"
+          className="aspect-[3/2] w-full bg-card object-contain"
           onError={() => setFailed(true)}
         />
       ) : (
