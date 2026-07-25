@@ -177,11 +177,17 @@ function LessonBody({ text, citations }: { text: string; citations: ChapterCitat
       const big = heading[1].length <= 2;
       blocks.push(
         big ? (
-          <h2 key={`h-${blocks.length}`} className="mt-3 text-lg font-semibold">
+          <h2
+            key={`h-${blocks.length}`}
+            className="mt-4 font-sans text-lg font-semibold tracking-tight"
+          >
             {renderInline(heading[2], `h-${blocks.length}`)}
           </h2>
         ) : (
-          <h3 key={`h-${blocks.length}`} className="mt-2 text-base font-semibold">
+          <h3
+            key={`h-${blocks.length}`}
+            className="mt-3 font-sans text-base font-semibold tracking-tight"
+          >
             {renderInline(heading[2], `h-${blocks.length}`)}
           </h3>
         ),
@@ -205,7 +211,13 @@ function LessonBody({ text, citations }: { text: string; citations: ChapterCitat
   }
   flushBullets();
 
-  return <div className="flex flex-col gap-2 text-sm">{blocks}</div>;
+  // Long-form lesson prose gets the reading serif at a comfortable measure;
+  // headings stay in the UI sans (set on each heading) for contrast.
+  return (
+    <div className="flex flex-col gap-3 font-serif text-[15px] leading-[1.75] sm:text-base">
+      {blocks}
+    </div>
+  );
 }
 
 function Lesson({

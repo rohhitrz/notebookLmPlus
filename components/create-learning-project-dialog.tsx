@@ -125,9 +125,9 @@ export function CreateLearningProjectDialog() {
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger
         render={
-          <Button variant="outline">
+          <Button size="lg" className="shadow-sm">
             <GraduationCap className="size-4" />
-            New learning project
+            Start learning
           </Button>
         }
       />

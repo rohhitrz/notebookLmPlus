@@ -1,21 +1,32 @@
-# NotebookLM-Plus
+# Curio
 
-A multi-source RAG notebook app. Feed it PDFs, plain text, web pages, YouTube
-videos, or VTT transcripts — each source is extracted, chunked, embedded, and
-stored in a per-notebook vector index. Ask questions in natural language and get
-answers where **every claim is cited and clickable**: a citation jumps a PDF to
-the right page, a YouTube video to the right timestamp, or highlights the exact
-passage in a transcript. Every notebook is an isolated knowledge base.
+**Get curious. Go deep.**
 
-On top of the core RAG engine sit two advanced modes:
+Curio turns any topic into a guided course. Name what you want to learn and it
+researches the web, builds an ordered roadmap of chapters sized to the topic's
+breadth, then teaches each one as a cited lesson with its own AI tutor and a
+visual summary infographic. Ask the goal too broadly ("learn about the whole
+world") and it hands back focus options to pick from instead of a shallow
+answer.
 
-- **Learn Mode** — turn a goal + sources into an ordered learning roadmap, then
-  spin up one scoped tutoring chat per concept (so the model never has to hold a
-  whole subject in one context window), cross-referencing summaries from sibling
-  chats.
-- **Studio** — generate a two-host AI podcast (male/female voices) narrating your
-  sources, and dense PowerPoint decks up to 30 slides, built batch-by-batch with
-  fresh retrieval per batch.
+You can also bring your own material. Feed it PDFs, plain text, web pages,
+YouTube videos, or VTT transcripts — each source is extracted, chunked,
+embedded, and stored in a per-notebook vector index. Ask questions in natural
+language and get answers where **every claim is cited and clickable**: a
+citation jumps a PDF to the right page, a YouTube video to the right timestamp,
+or highlights the exact passage in a transcript. Every notebook is an isolated
+knowledge base.
+
+The two modes:
+
+- **Learning projects** (the headline) — a goal becomes a web-grounded roadmap
+  with per-chapter difficulty and time estimates. Each chapter streams in as it's
+  written, carries an infographic-style visual summary, and gets its own scoped
+  tutor chat that stays strictly on-topic (so the model never has to hold a whole
+  subject in one context window).
+- **Notebooks** — your own documents, plus a **Studio** that generates a two-host
+  AI podcast (male/female voices) narrating your sources, and dense PowerPoint
+  decks up to 30 slides, built batch-by-batch with fresh retrieval per batch.
 
 ## Stack
 

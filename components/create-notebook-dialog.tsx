@@ -44,7 +44,7 @@ export function CreateNotebookDialog() {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger
         render={
-          <Button>
+          <Button variant="outline" size="lg" className="bg-background/60">
             <Plus className="size-4" />
             New notebook
           </Button>

@@ -17,7 +17,7 @@ export default async function Home() {
   return (
     <div className="flex flex-1 flex-col">
       <header className="flex items-center justify-between border-b px-6 py-4">
-        <span className="font-semibold">NotebookLM+</span>
+        <span className="text-lg font-semibold tracking-tight">Curio</span>
         <div className="flex items-center gap-1">
           <ThemeToggle />
           <UserButton />

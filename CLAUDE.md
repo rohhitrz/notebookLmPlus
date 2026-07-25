@@ -1,6 +1,10 @@
-# NotebookLM-Plus
+# Curio
 
-Multi-source RAG notebook app. Next.js 15 App Router + TypeScript + Tailwind + shadcn/ui.
+Guided-learning + multi-source RAG app ("Get curious. Go deep."). Learning
+projects are the headline feature: a goal becomes a web-grounded roadmap of
+chapters, each with a streamed lesson, a visual summary, and a scoped tutor
+chat. Bring-your-own-document notebooks are the secondary mode.
+Next.js 15 App Router + TypeScript + Tailwind + shadcn/ui.
 Supabase (Postgres + pgvector + Storage). OpenAI API via the `openai` SDK.
 
 ## Non-negotiable rules

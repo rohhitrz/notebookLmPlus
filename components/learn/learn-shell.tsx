@@ -186,7 +186,7 @@ export function LearnShell({
             <PanelLeft className="size-4" />
           </Button>
           <Link href="/" className="hidden text-sm text-muted-foreground hover:text-foreground sm:inline">
-            ← Notebooks
+            ← Library
           </Link>
           <span className="truncate font-semibold">{notebook.title}</span>
         </div>
