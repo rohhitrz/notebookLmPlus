@@ -40,16 +40,26 @@ export async function resolveYoutubeUrls(
   return videos;
 }
 
-// Downloads the caption VTT for one video, signing the timedtext request with a
-// PO token. Returns the raw VTT body (empty string if YouTube rejected the token).
-async function fetchCaptionVtt(videoId: string): Promise<{ title: string; vtt: string }> {
+interface VideoData {
+  title: string;
+  description: string;
+  vtt: string;
+  hasCaptions: boolean;
+}
+
+// Fetches a video's title, description, and (if available) caption VTT. The
+// timedtext request is signed with a PO token. `vtt` is "" when YouTube rejects
+// the token or the video has no captions.
+async function fetchVideoData(videoId: string): Promise<VideoData> {
   const { innertube, poToken } = await getYoutubeSession();
   const info = await innertube.getInfo(videoId);
   const title = info.basic_info.title ?? "YouTube video";
+  const description = info.basic_info.short_description ?? "";
 
   const tracks = info.captions?.caption_tracks ?? [];
   if (tracks.length === 0) {
-    throw new Error("This video has no caption tracks available");
+    // No captions — the caller still indexes the title + description.
+    return { title, description, vtt: "", hasCaptions: false };
   }
   const track =
     tracks.find((t) => t.language_code?.startsWith("en")) ?? tracks[0];
@@ -63,34 +73,44 @@ async function fetchCaptionVtt(videoId: string): Promise<{ title: string; vtt: s
     throw new Error("Failed to download captions for this video (YouTube returned an error)");
   }
 
-  return { title, vtt: await response.text() };
+  return { title, description, vtt: await response.text(), hasCaptions: true };
 }
 
 export async function extractYoutube(url: string): Promise<ExtractResult> {
   const videoId = extractVideoId(url);
   if (!videoId) throw new Error("Could not parse YouTube video ID from URL");
 
-  let { title, vtt } = await fetchCaptionVtt(videoId);
+  let data = await fetchVideoData(videoId);
 
-  // An empty body means the PO token was rejected (usually expired). Re-mint once.
-  if (!vtt.trim()) {
+  // Tracks exist but an empty body means the PO token was rejected (usually
+  // expired) — re-mint once and retry.
+  if (data.hasCaptions && !data.vtt.trim()) {
     invalidateYoutubeSession();
-    ({ title, vtt } = await fetchCaptionVtt(videoId));
+    data = await fetchVideoData(videoId);
   }
 
-  const cues = parseVtt(vtt);
-  if (cues.length === 0) {
-    throw new Error(
-      "Could not extract captions for this video. It may have captions disabled, " +
-        "or YouTube declined the request — try again in a moment.",
-    );
-  }
-
-  const units: ExtractUnit[] = cues.map((c) => ({
+  const captionUnits: ExtractUnit[] = parseVtt(data.vtt).map((c) => ({
     text: c.text,
     startSec: c.start,
     endSec: c.end,
   }));
 
-  return { fullText: units.map((u) => u.text).join(" "), units, title };
+  // Index the title + description first. It's often richer than the captions and
+  // frequently in a different language, so it answers metadata questions the
+  // (possibly non-English) transcript can't. It anchors to the video start (t=0).
+  const header = [data.title, data.description]
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .join("\n\n");
+  const headerUnit: ExtractUnit[] = header ? [{ text: header, startSec: 0, endSec: 0 }] : [];
+
+  const units = [...headerUnit, ...captionUnits];
+  if (units.length === 0) {
+    throw new Error(
+      "Could not extract anything from this video — it has no captions or description available.",
+    );
+  }
+
+  const fullText = [header, ...captionUnits.map((u) => u.text)].filter(Boolean).join(" ");
+  return { fullText, units, title: data.title };
 }

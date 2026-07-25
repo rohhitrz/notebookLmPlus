@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Send } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -139,10 +139,31 @@ export function ChatPanel({
   const [streaming, setStreaming] = useState(false);
   const chatIdRef = useRef<string | undefined>(initialChatId);
 
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const endRef = useRef<HTMLDivElement>(null);
+  // Whether to auto-follow new content. True while the user is near the bottom;
+  // false once they scroll up to read history.
+  const stickRef = useRef(true);
+
+  function updateStick() {
+    const el = scrollRef.current;
+    if (!el) return;
+    stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+  }
+
+  // Follow new messages / streaming tokens only when sticking to the bottom.
+  useEffect(() => {
+    if (stickRef.current) {
+      endRef.current?.scrollIntoView({ block: "end" });
+    }
+  }, [messages]);
+
   async function handleSend() {
     const text = input.trim();
     if (!text || streaming) return;
     setInput("");
+    // Sending always jumps to the bottom, even if the user had scrolled up.
+    stickRef.current = true;
 
     const userMsg: DisplayMessage = {
       id: crypto.randomUUID(),
@@ -196,7 +217,7 @@ export function ChatPanel({
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      <div className="flex-1 overflow-y-auto p-4">
+      <div ref={scrollRef} onScroll={updateStick} className="flex-1 overflow-y-auto p-4">
         {messages.length === 0 ? (
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
             {disabled ? "Add a source to start chatting." : emptyStateText ?? "Ask a question about your sources."}
@@ -218,6 +239,7 @@ export function ChatPanel({
                 </div>
               </div>
             ))}
+            <div ref={endRef} />
           </div>
         )}
       </div>

@@ -11,7 +11,11 @@ export interface ChunkSearchResult {
 }
 
 const TOP_K = 24;
-const MIN_SIMILARITY = 0.35;
+// A loose floor to drop near-orthogonal noise only. The LLM reranker is the real
+// relevance gate, so keeping this low avoids false "not found" results for valid
+// matches that score modestly (e.g. cross-lingual: an English query against a
+// Hindi transcript, or terse queries against formal source text).
+const MIN_SIMILARITY = 0.2;
 
 function toVectorLiteral(embedding: number[]): string {
   return `[${embedding.join(",")}]`;
