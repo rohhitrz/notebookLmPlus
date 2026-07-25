@@ -5,6 +5,10 @@ import { requireUser } from "@/lib/auth";
 import { getOwnedNotebook } from "@/lib/db/queries";
 import { generateChapterImage } from "@/lib/learn";
 
+// Image generation is slow — well past the default 10s serverless budget.
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
 const imageSchema = z.object({
   notebookId: z.string().uuid(),
   roadmapItemId: z.string(),

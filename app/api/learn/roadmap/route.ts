@@ -9,6 +9,10 @@ import { roadmaps } from "@/lib/db/schema";
 import { generateRoadmap } from "@/lib/learn";
 import { DIFFICULTY_LEVELS, type RoadmapItem, type SuggestedResource } from "@/lib/types";
 
+// Roadmap generation summarizes sources + drafts the plan; can exceed 10s.
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
 const createRoadmapSchema = z.object({
   notebookId: z.string().uuid(),
   goal: z.string().trim().min(1),

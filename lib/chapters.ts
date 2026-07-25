@@ -1,4 +1,5 @@
-import { chat } from "@/lib/llm";
+import { z } from "zod";
+import { chat, chatJSON } from "@/lib/llm";
 import { tavilySearch, type TavilyResult } from "@/lib/tavily";
 import type {
   ChapterCitation,
@@ -89,6 +90,55 @@ export function streamChapterBody(
 ): AsyncGenerator<string> {
   const system = buildChapterSystemPrompt(goal, concept, why, difficulty, sources);
   return chat([{ role: "user", content: "Write the lesson chapter now." }], system);
+}
+
+const infographicSpecSchema = z.object({
+  title: z.string(),
+  gist: z.string(),
+  // A process/pipeline/sequence if the topic has one, otherwise empty.
+  flow: z.array(z.string()),
+  keyTerms: z.array(z.object({ term: z.string(), definition: z.string() })),
+});
+
+// Turns a finished lesson into an image-generation prompt for a study-aid
+// INFOGRAPHIC (flow + labeled term cards + takeaway) rather than a decorative
+// illustration. First extracts a compact structured spec so the image model has
+// real, concise content to lay out and label.
+export async function buildChapterImagePrompt(
+  concept: string,
+  lessonText: string,
+): Promise<string> {
+  const source = lessonText.replace(/\[\d+\]/g, "").slice(0, 4000);
+
+  const spec = await chatJSON(
+    `From the lesson below, extract a compact spec for a visual-summary infographic of "${concept}". Return:
+- title: the topic title (<= 6 words).
+- gist: one plain-language sentence capturing the core idea.
+- flow: 3-6 short, ordered stage labels (<= 4 words each) IF the topic involves a process, pipeline, sequence, lifecycle, or cause -> effect; otherwise an empty array.
+- keyTerms: 3-5 of the most important terms, each with a very short definition (<= 12 words).
+Keep every string short enough to fit legibly inside a diagram.
+
+Lesson:
+${source}`,
+    infographicSpecSchema,
+  );
+
+  const flowLine = spec.flow.length
+    ? `- A clear flow of connected, arrow-linked stages: ${spec.flow.join(" -> ")}.\n`
+    : "";
+  const termsLines = spec.keyTerms.map((t) => `  - ${t.term}: ${t.definition}`).join("\n");
+
+  return `Create a clean, modern educational INFOGRAPHIC that works as a one-glance visual summary / cheat-sheet a student can keep as a reference for this topic.
+
+Title header: ${spec.title}
+Core idea to convey: ${spec.gist}
+
+Lay it out clearly, using boxes, cards, small icons and connecting arrows where they help:
+${flowLine}- A row or grid of labeled cards, each a bold TERM with its one-line definition:
+${termsLines}
+- A short highlighted "key takeaway" callout summarizing the core idea.
+
+Style: flat vector infographic / diagram, one cohesive simple color palette, clean sans-serif text that is fully legible and correctly spelled, generous whitespace, high contrast, clearly separated sections. No photorealism, no watermark, no gibberish text.`;
 }
 
 /**

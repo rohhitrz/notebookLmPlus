@@ -6,6 +6,11 @@ import { getOwnedNotebook } from "@/lib/db/queries";
 import { setRoadmapItemStatus, streamChapter } from "@/lib/learn";
 import { ROADMAP_ITEM_STATUSES } from "@/lib/types";
 
+// Streaming LLM work needs the Node runtime and more than the default 10s
+// serverless budget on Vercel.
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
 const generateSchema = z.object({
   notebookId: z.string().uuid(),
   roadmapItemId: z.string(),
@@ -31,7 +36,11 @@ export const POST = apiHandler(async (req: NextRequest) => {
         }
       } catch (err) {
         console.error("[learn] chapter stream failed", err);
-        send("error", { message: "Failed to build this chapter. Please try again." });
+        // Surface the real cause (e.g. a missing TAVILY_API_KEY / OpenAI config
+        // in production) so failures are diagnosable instead of a generic wall.
+        const message =
+          err instanceof Error ? err.message : "Failed to build this chapter. Please try again.";
+        send("error", { message });
       } finally {
         controller.close();
       }

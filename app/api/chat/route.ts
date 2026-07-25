@@ -22,6 +22,11 @@ import {
   retrieve,
 } from "@/lib/rag";
 
+// Streaming + retrieval (and on-the-fly chapter generation) needs the Node
+// runtime and more than the default 10s serverless budget on Vercel.
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
 const chatRequestSchema = z.object({
   notebookId: z.string().uuid(),
   chatId: z.string().uuid().optional(),

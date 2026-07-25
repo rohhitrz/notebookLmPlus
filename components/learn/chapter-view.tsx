@@ -96,8 +96,8 @@ function ChapterImage({
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={imageUrl}
-          alt={item.concept}
-          className="aspect-[3/2] w-full object-cover"
+          alt={`Visual summary of ${item.concept}`}
+          className="aspect-[3/2] w-full bg-white object-contain"
           onError={() => setFailed(true)}
         />
       ) : (

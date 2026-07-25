@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { chats, chunks, roadmaps, sources } from "@/lib/db/schema";
 import { chatJSON, generateImage } from "@/lib/llm";
 import {
+  buildChapterImagePrompt,
   collectCitationsFromText,
   fetchChapterSources,
   generateChapter,
@@ -367,20 +368,13 @@ export async function generateChapterImage(
   if (!item?.content) throw new Error("Chapter has not been generated yet");
   if (item.content.imageUrl) return item.content.imageUrl;
 
-  // A short factual snippet of the lesson so the illustration matches the actual
-  // content rather than just the title. Strip markdown/citation noise.
-  const snippet = (item.content.body ?? item.content.overview ?? "")
-    .replace(/\[\d+\]/g, "")
-    .replace(/[#*_`>-]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 400);
+  // Build an infographic-style prompt (flow + term cards + takeaway) from the
+  // actual lesson text, so the image is a usable visual summary, not just decor.
+  const lessonText = item.content.body ?? item.content.overview ?? item.concept;
+  const prompt = await buildChapterImagePrompt(item.concept, lessonText);
+  await assertContentSafe(prompt, item.concept);
 
-  const context = `${item.concept}. ${snippet}`;
-  await assertContentSafe(context, item.concept);
-
-  const styled = `Clean, modern educational illustration for a learning app that helps a student understand this concept: ${context} Prefer a clear, labeled diagram or conceptual illustration over decorative art. Flat, minimal style, high contrast, plenty of whitespace, minimal text. No watermarks.`;
-  const png = await generateImage(styled);
+  const png = await generateImage(prompt);
   const imageUrl = await uploadLearnImage(`${notebookId}/${roadmapItemId}.png`, png);
 
   // Re-read to avoid clobbering a concurrent chapter/status update, then patch
