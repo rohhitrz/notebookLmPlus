@@ -56,3 +56,18 @@ export async function getArtifactSignedUrl(path: string, expiresInSeconds = 3600
   if (error) throw error;
   return data.signedUrl;
 }
+
+// A year — chapter illustrations are generated once and their URL is persisted
+// into the chapter content, so the signed link must outlive a browsing session.
+const LEARN_IMAGE_TTL_SECONDS = 60 * 60 * 24 * 365;
+
+// Stores a generated chapter illustration and returns a long-lived signed URL.
+// Reuses the private artifacts bucket under a "learn/" prefix.
+export async function uploadLearnImage(path: string, file: Buffer): Promise<string> {
+  const key = `learn/${path}`;
+  const { error } = await supabase.storage
+    .from(ARTIFACTS_BUCKET)
+    .upload(key, file, { contentType: "image/png", upsert: true });
+  if (error) throw error;
+  return getArtifactSignedUrl(key, LEARN_IMAGE_TTL_SECONDS);
+}

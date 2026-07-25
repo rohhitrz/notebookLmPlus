@@ -7,19 +7,20 @@ import { db } from "@/lib/db";
 import { getOwnedNotebook } from "@/lib/db/queries";
 import { roadmaps } from "@/lib/db/schema";
 import { generateRoadmap } from "@/lib/learn";
-import type { RoadmapItem, SuggestedResource } from "@/lib/types";
+import { DIFFICULTY_LEVELS, type RoadmapItem, type SuggestedResource } from "@/lib/types";
 
 const createRoadmapSchema = z.object({
   notebookId: z.string().uuid(),
   goal: z.string().trim().min(1),
+  level: z.enum(DIFFICULTY_LEVELS).default("beginner"),
 });
 
 export const POST = apiHandler(async (req: NextRequest) => {
   const userId = await requireUser();
-  const { notebookId, goal } = createRoadmapSchema.parse(await req.json());
+  const { notebookId, goal, level } = createRoadmapSchema.parse(await req.json());
   await getOwnedNotebook(notebookId, userId);
 
-  const { roadmap } = await generateRoadmap(notebookId, goal);
+  const { roadmap } = await generateRoadmap(notebookId, goal, level);
 
   return NextResponse.json(roadmap, { status: 201 });
 });

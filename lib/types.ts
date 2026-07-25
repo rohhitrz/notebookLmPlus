@@ -70,6 +70,25 @@ export interface ChunkDetail {
 export const ROADMAP_ITEM_STATUSES = ["todo", "in_progress", "done"] as const;
 export type RoadmapItemStatus = (typeof ROADMAP_ITEM_STATUSES)[number];
 
+export const DIFFICULTY_LEVELS = ["beginner", "intermediate", "advanced"] as const;
+export type DifficultyLevel = (typeof DIFFICULTY_LEVELS)[number];
+
+// Result of checking whether a learning goal is specific enough to build a
+// focused roadmap. When `broad` is true the UI shows the options as clickable
+// chips so the student can narrow their goal before we generate anything.
+export const scopeOptionSchema = z.object({
+  label: z.string(),
+  refinedGoal: z.string(),
+});
+export type ScopeOption = z.infer<typeof scopeOptionSchema>;
+
+export const scopeResultSchema = z.object({
+  broad: z.boolean(),
+  clarifyingQuestion: z.string(),
+  options: z.array(scopeOptionSchema),
+});
+export type ScopeResult = z.infer<typeof scopeResultSchema>;
+
 // A generated, web-grounded lesson for one roadmap item ("chapter").
 export const chapterCitationSchema = z.object({
   n: z.number().int(),
@@ -85,10 +104,16 @@ export const chapterSectionSchema = z.object({
 export type ChapterSection = z.infer<typeof chapterSectionSchema>;
 
 export const chapterContentSchema = z.object({
-  overview: z.string(),
-  sections: z.array(chapterSectionSchema),
-  keyTakeaways: z.array(z.string()),
-  citations: z.array(chapterCitationSchema),
+  // The lesson as GitHub-flavored Markdown, streamed as it's generated.
+  body: z.string().default(""),
+  citations: z.array(chapterCitationSchema).default([]),
+  // Illustration, generated lazily after the text is ready.
+  imageUrl: z.string().nullable().default(null),
+  // Legacy structured fields — chapters generated before the streaming refactor
+  // stored their content this way; kept optional so they still render.
+  overview: z.string().optional(),
+  sections: z.array(chapterSectionSchema).optional(),
+  keyTakeaways: z.array(z.string()).optional(),
 });
 export type ChapterContent = z.infer<typeof chapterContentSchema>;
 
@@ -98,6 +123,10 @@ export const roadmapItemSchema = z.object({
   concept: z.string(),
   why: z.string(),
   status: z.enum(ROADMAP_ITEM_STATUSES),
+  // Calibrated per chapter so a "big" topic can carry a heavier, longer chapter
+  // than a foundational one — the syllabus is not one-size-fits-all.
+  difficulty: z.enum(DIFFICULTY_LEVELS).default("beginner"),
+  estMinutes: z.number().int().positive().default(10),
   sources: z.array(
     z.object({
       sourceId: z.string().uuid(),

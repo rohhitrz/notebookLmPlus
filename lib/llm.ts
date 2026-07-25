@@ -75,6 +75,33 @@ export async function chatJSON<T extends z.ZodTypeAny>(
 }
 
 // ---------------------------------------------------------------------------
+// generateImage() — OpenAI image model (env OPENAI_IMAGE_MODEL)
+// ---------------------------------------------------------------------------
+
+export type ImageSize = "1024x1024" | "1536x1024" | "1024x1536";
+
+// Returns the raw PNG bytes for a single generated image. Callers are expected
+// to persist the result (e.g. to Storage) — we never inline base64 into the DB.
+export async function generateImage(
+  prompt: string,
+  opts: { size?: ImageSize; quality?: "low" | "medium" | "high" } = {},
+): Promise<Buffer> {
+  const result = await withBackoff(() =>
+    openai.images.generate({
+      model: process.env.OPENAI_IMAGE_MODEL!,
+      prompt,
+      size: opts.size ?? "1536x1024",
+      quality: opts.quality ?? "medium",
+      n: 1,
+    }),
+  );
+
+  const b64 = result.data?.[0]?.b64_json;
+  if (!b64) throw new Error("OpenAI image generation returned no data");
+  return Buffer.from(b64, "base64");
+}
+
+// ---------------------------------------------------------------------------
 // embedBatch() — OpenAI, locked to 768 dims to match the pgvector schema
 // ---------------------------------------------------------------------------
 

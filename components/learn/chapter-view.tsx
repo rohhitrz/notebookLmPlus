@@ -1,18 +1,114 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { BookOpen, CheckCircle2, ExternalLink, Loader2, MessageCircle } from "lucide-react";
+import {
+  BookOpen,
+  CheckCircle2,
+  Clock,
+  ExternalLink,
+  Loader2,
+  MessageCircle,
+  SignalHigh,
+} from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { parseSSEStream } from "@/lib/sse-client";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { ChatPanel, type ChatAction } from "@/components/notebook/chat-panel";
 import type {
   ChapterCitation,
   ChapterContent,
   Citation,
+  DifficultyLevel,
   DisplayMessage,
   RoadmapItem,
 } from "@/lib/types";
+
+const DIFFICULTY_LABEL: Record<DifficultyLevel, string> = {
+  beginner: "Beginner",
+  intermediate: "Intermediate",
+  advanced: "Advanced",
+};
+
+function ChapterMeta({ item }: { item: RoadmapItem }) {
+  const difficulty = item.difficulty ?? "beginner";
+  const minutes = item.estMinutes ?? null;
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+      <Badge variant="secondary" className="gap-1">
+        <SignalHigh className="size-3" />
+        {DIFFICULTY_LABEL[difficulty]}
+      </Badge>
+      {minutes != null && (
+        <span className="inline-flex items-center gap-1">
+          <Clock className="size-3" />
+          ~{minutes} min
+        </span>
+      )}
+    </div>
+  );
+}
+
+// The chapter's illustration. Renders the stored image, or generates one on
+// first view (the lesson text is already visible by then, so the slower image
+// load never blocks reading). Silently hides itself if generation fails.
+function ChapterImage({
+  notebookId,
+  item,
+  onChapter,
+}: Pick<ChapterViewProps, "notebookId" | "item" | "onChapter">) {
+  const content = item.content;
+  const imageUrl = content?.imageUrl ?? null;
+  const [failed, setFailed] = useState(false);
+  const requested = useRef(false);
+
+  useEffect(() => {
+    if (!content || imageUrl || failed || requested.current) return;
+    requested.current = true;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/learn/chapters/image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ notebookId, roadmapItemId: item.id }),
+        });
+        if (!res.ok) throw new Error("image failed");
+        const { imageUrl: url } = (await res.json()) as { imageUrl: string | null };
+        if (cancelled) return;
+        if (url) onChapter(item.id, { ...content, imageUrl: url });
+        else setFailed(true);
+      } catch {
+        if (!cancelled) setFailed(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [content, imageUrl, failed, notebookId, item.id, onChapter]);
+
+  if (!content || failed) return null;
+
+  return (
+    <figure className="overflow-hidden rounded-xl border bg-muted/40">
+      {imageUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={imageUrl}
+          alt={item.concept}
+          className="aspect-[3/2] w-full object-cover"
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <div className="flex aspect-[3/2] w-full flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="size-5 animate-spin text-primary" />
+          Illustrating this chapter…
+        </div>
+      )}
+    </figure>
+  );
+}
 
 interface ChapterViewProps {
   notebookId: string;
@@ -74,6 +170,25 @@ function LessonBody({ text, citations }: { text: string; citations: ChapterCitat
 
   for (const raw of lines) {
     const line = raw.trim();
+
+    const heading = line.match(/^(#{2,4})\s+(.*)$/);
+    if (heading) {
+      flushBullets();
+      const big = heading[1].length <= 2;
+      blocks.push(
+        big ? (
+          <h2 key={`h-${blocks.length}`} className="mt-3 text-lg font-semibold">
+            {renderInline(heading[2], `h-${blocks.length}`)}
+          </h2>
+        ) : (
+          <h3 key={`h-${blocks.length}`} className="mt-2 text-base font-semibold">
+            {renderInline(heading[2], `h-${blocks.length}`)}
+          </h3>
+        ),
+      );
+      continue;
+    }
+
     const bullet = line.match(/^[-*]\s+(.*)$/);
     if (bullet) {
       bullets.push(bullet[1]);
@@ -99,9 +214,12 @@ function Lesson({
   onChapter,
   onStatus,
 }: Pick<ChapterViewProps, "notebookId" | "item" | "onChapter" | "onStatus">) {
-  const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [marking, setMarking] = useState(false);
+  // Markdown accumulated live while the lesson streams in (before it's persisted
+  // into item.content).
+  const [streamedBody, setStreamedBody] = useState("");
+  const [streaming, setStreaming] = useState(false);
   const requested = useRef(false);
 
   const content = item.content;
@@ -109,28 +227,40 @@ function Lesson({
   useEffect(() => {
     if (content || requested.current) return;
     requested.current = true;
-    let cancelled = false;
+    const controller = new AbortController();
     (async () => {
-      setGenerating(true);
+      setStreaming(true);
+      setStreamedBody("");
       setError(null);
       try {
         const res = await fetch("/api/learn/chapters", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ notebookId, roadmapItemId: item.id }),
+          signal: controller.signal,
         });
-        if (!res.ok) throw new Error("Failed to build this chapter. Please try again.");
-        const { content: generated } = (await res.json()) as { content: ChapterContent };
-        if (!cancelled) onChapter(item.id, generated);
+        if (!res.ok || !res.body) throw new Error("Failed to build this chapter. Please try again.");
+
+        for await (const evt of parseSSEStream(res.body)) {
+          if (evt.event === "token") {
+            const { text } = evt.data as { text: string };
+            setStreamedBody((prev) => prev + text);
+          } else if (evt.event === "done") {
+            const { content: generated } = evt.data as { content: ChapterContent };
+            onChapter(item.id, generated);
+          } else if (evt.event === "error") {
+            throw new Error((evt.data as { message: string }).message);
+          }
+        }
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to build chapter");
+        if (!controller.signal.aborted) {
+          setError(e instanceof Error ? e.message : "Failed to build chapter");
+        }
       } finally {
-        if (!cancelled) setGenerating(false);
+        setStreaming(false);
       }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
   }, [content, item.id, notebookId, onChapter]);
 
   async function markComplete() {
@@ -151,19 +281,20 @@ function Lesson({
     }
   }
 
-  if (generating || (!content && !error)) {
+  // Nothing to show yet and nothing streaming: initial connect / web search.
+  if (!content && !streamedBody && !error) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center text-sm text-muted-foreground">
         <Loader2 className="size-6 animate-spin text-primary" />
         <div>
           <p className="font-medium text-foreground">Building your chapter…</p>
-          <p>Searching the web and assembling a grounded lesson on “{item.concept}”.</p>
+          <p>Searching the web for a grounded lesson on “{item.concept}”.</p>
         </div>
       </div>
     );
   }
 
-  if (error) {
+  if (error && !content && !streamedBody) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center text-sm">
         <p className="text-destructive">{error}</p>
@@ -181,40 +312,59 @@ function Lesson({
     );
   }
 
-  if (!content) return null;
+  const body = content?.body ?? streamedBody;
+  const citations = content?.citations ?? [];
+  const legacy = content && !content.body && (content.sections?.length ?? 0) > 0;
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <article className="mx-auto flex max-w-3xl flex-col gap-6 p-6">
+      <article className="mx-auto flex max-w-3xl flex-col gap-6 p-4 sm:p-6">
         <header className="flex flex-col gap-2">
-          <h1 className="text-2xl font-semibold">{item.concept}</h1>
-          <p className="text-sm text-muted-foreground">{content.overview}</p>
+          <h1 className="text-xl font-semibold sm:text-2xl">{item.concept}</h1>
+          <ChapterMeta item={item} />
+          {legacy && content?.overview && (
+            <p className="text-sm text-muted-foreground">{content.overview}</p>
+          )}
         </header>
 
-        {content.sections.map((s, i) => (
-          <section key={i} className="flex flex-col gap-2">
-            <h2 className="text-lg font-semibold">{s.heading}</h2>
-            <LessonBody text={s.body} citations={content.citations} />
-          </section>
-        ))}
+        {content && <ChapterImage notebookId={notebookId} item={item} onChapter={onChapter} />}
 
-        {content.keyTakeaways.length > 0 && (
-          <section className="flex flex-col gap-2 rounded-xl border bg-muted/40 p-4">
-            <h2 className="text-sm font-semibold">Key takeaways</h2>
-            <ul className="list-disc space-y-1 pl-5 text-sm">
-              {content.keyTakeaways.map((t, i) => (
-                <li key={i}>{t}</li>
-              ))}
-            </ul>
-          </section>
+        {legacy ? (
+          <>
+            {content!.sections!.map((s, i) => (
+              <section key={i} className="flex flex-col gap-2">
+                <h2 className="text-lg font-semibold">{s.heading}</h2>
+                <LessonBody text={s.body} citations={citations} />
+              </section>
+            ))}
+            {(content!.keyTakeaways?.length ?? 0) > 0 && (
+              <section className="flex flex-col gap-2 rounded-xl border bg-muted/40 p-4">
+                <h2 className="text-sm font-semibold">Key takeaways</h2>
+                <ul className="list-disc space-y-1 pl-5 text-sm">
+                  {content!.keyTakeaways!.map((t, i) => (
+                    <li key={i}>{t}</li>
+                  ))}
+                </ul>
+              </section>
+            )}
+          </>
+        ) : (
+          body && <LessonBody text={body} citations={citations} />
         )}
 
-        {content.citations.length > 0 && (
+        {streaming && (
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin text-primary" />
+            Writing your lesson…
+          </p>
+        )}
+
+        {citations.length > 0 && (
           <section className="flex flex-col gap-1.5 border-t pt-4">
             <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Sources
             </h2>
-            {content.citations.map((c) => (
+            {citations.map((c) => (
               <a
                 key={c.n}
                 href={c.url}
@@ -230,16 +380,18 @@ function Lesson({
           </section>
         )}
 
-        <div className="pt-2">
-          <Button
-            variant={item.status === "done" ? "outline" : "default"}
-            onClick={markComplete}
-            disabled={marking}
-          >
-            <CheckCircle2 className="size-4" />
-            {item.status === "done" ? "Completed — mark as unread" : "Mark chapter complete"}
-          </Button>
-        </div>
+        {content && (
+          <div className="pt-2">
+            <Button
+              variant={item.status === "done" ? "outline" : "default"}
+              onClick={markComplete}
+              disabled={marking}
+            >
+              <CheckCircle2 className="size-4" />
+              {item.status === "done" ? "Completed — mark as unread" : "Mark chapter complete"}
+            </Button>
+          </div>
+        )}
       </article>
     </div>
   );

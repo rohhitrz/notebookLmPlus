@@ -1,8 +1,15 @@
 "use client";
 
-import { Check, Circle, Loader2 } from "lucide-react";
+import { Check, Circle, Clock, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { RoadmapItem } from "@/lib/types";
+import { Badge } from "@/components/ui/badge";
+import type { DifficultyLevel, RoadmapItem } from "@/lib/types";
+
+const DIFFICULTY_LABEL: Record<DifficultyLevel, string> = {
+  beginner: "Beginner",
+  intermediate: "Intermediate",
+  advanced: "Advanced",
+};
 
 interface RoadmapSource {
   id: string;
@@ -82,7 +89,19 @@ export function RoadmapPanel({
                 <StatusIcon status={item.status} />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium">{item.concept}</p>
-                  {item.why && <p className="mt-0.5 text-xs text-muted-foreground">{item.why}</p>}
+
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+                    <Badge variant="secondary" className="h-4 px-1.5 text-[10px]">
+                      {DIFFICULTY_LABEL[item.difficulty ?? "beginner"]}
+                    </Badge>
+                    {item.estMinutes != null && (
+                      <span className="inline-flex items-center gap-0.5">
+                        <Clock className="size-3" />~{item.estMinutes} min
+                      </span>
+                    )}
+                  </div>
+
+                  {item.why && <p className="mt-1 text-xs text-muted-foreground">{item.why}</p>}
 
                   {item.sources.length > 0 && (
                     <div className="mt-1 flex flex-wrap gap-2">
