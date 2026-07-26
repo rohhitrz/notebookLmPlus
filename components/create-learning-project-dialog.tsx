@@ -131,15 +131,17 @@ export function CreateLearningProjectDialog() {
           </Button>
         }
       />
-      <DialogContent>
+      <DialogContent className="flex max-h-[88dvh] flex-col">
         {scope && (phase === "options" || phase === "creating") ? (
           <>
-            <DialogHeader>
+            <DialogHeader className="shrink-0">
               <DialogTitle>Let&apos;s narrow this down</DialogTitle>
               <DialogDescription>{scope.clarifyingQuestion}</DialogDescription>
             </DialogHeader>
 
-            <div className="flex flex-col gap-2">
+            {/* Only this list scrolls, so the header and the action buttons
+                below always stay on screen no matter how many options come back. */}
+            <div className="-mr-2 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-2">
               {scope.options.map((opt, i) => {
                 const isOn = selected.has(i);
                 return (
@@ -148,7 +150,7 @@ export function CreateLearningProjectDialog() {
                     type="button"
                     onClick={() => toggleOption(i)}
                     className={cn(
-                      "flex flex-col items-start gap-0.5 rounded-lg border p-3 text-left transition-colors",
+                      "flex shrink-0 flex-col items-start gap-0.5 rounded-lg border p-3 text-left transition-colors",
                       isOn
                         ? "border-primary bg-primary/5 ring-1 ring-primary/40"
                         : "hover:border-foreground/30 hover:bg-muted/50",
@@ -160,11 +162,11 @@ export function CreateLearningProjectDialog() {
                 );
               })}
             </div>
-            <p className="text-xs text-muted-foreground">
+            <p className="shrink-0 text-xs text-muted-foreground">
               Pick one or combine a few — we&apos;ll build a focused roadmap around your choices.
             </p>
 
-            <DialogFooter className="sm:justify-between">
+            <DialogFooter className="shrink-0 sm:justify-between">
               <Button variant="ghost" onClick={() => setPhase("form")} disabled={busy}>
                 <ArrowLeft className="size-4" />
                 Back
