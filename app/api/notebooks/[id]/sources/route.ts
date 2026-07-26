@@ -1,4 +1,4 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { after, NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { apiHandler } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
@@ -9,6 +9,11 @@ import { resolveYoutubeUrls } from "@/lib/ingest/extractors/youtube";
 import { processSource } from "@/lib/ingest/pipeline";
 
 type Params = { params: Promise<{ id: string }> };
+
+// Indexing continues after the response via after(), so the invocation needs the
+// Node runtime and headroom beyond the default 10s.
+export const runtime = "nodejs";
+export const maxDuration = 60;
 
 // File sources (pdf, vtt) are uploaded straight to Storage from the browser via
 // /sources/upload-url + /sources/[id]/process, so they never hit this route's
@@ -24,9 +29,16 @@ const jsonSourceSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
+// Indexing runs after the response so the request returns immediately and the
+// UI polls for status. after() is required on serverless: a bare fire-and-forget
+// promise is killed the moment the response is sent.
 function runInBackground(sourceId: string) {
-  processSource(sourceId).catch((err) => {
-    console.error(`[sources] processSource(${sourceId}) failed`, err);
+  after(async () => {
+    try {
+      await processSource(sourceId);
+    } catch (err) {
+      console.error(`[sources] processSource(${sourceId}) failed`, err);
+    }
   });
 }
 

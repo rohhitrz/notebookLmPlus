@@ -1,4 +1,4 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { after, NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { apiHandler } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
@@ -7,6 +7,11 @@ import { db } from "@/lib/db";
 import { getOwnedNotebook } from "@/lib/db/queries";
 import { artifacts } from "@/lib/db/schema";
 import { generatePptx } from "@/lib/studio/pptx";
+
+// Generation continues after the response via after(), so it runs inside this
+// invocation. 60s is the Vercel Hobby ceiling; raise it if you upgrade plans.
+export const runtime = "nodejs";
+export const maxDuration = 60;
 
 const bodySchema = z.object({
   notebookId: z.string().uuid(),
@@ -20,8 +25,14 @@ function runInBackground(
   sourceIds: string[],
   focus: string | undefined,
 ) {
-  generatePptx(artifactId, notebookId, sourceIds, focus).catch((err) => {
-    console.error(`[studio] generatePptx(${artifactId}) failed`, err);
+  // after() keeps the serverless invocation alive; a bare promise is killed
+  // when the response is sent, leaving the artifact stuck "generating".
+  after(async () => {
+    try {
+      await generatePptx(artifactId, notebookId, sourceIds, focus);
+    } catch (err) {
+      console.error(`[studio] generatePptx(${artifactId}) failed`, err);
+    }
   });
 }
 

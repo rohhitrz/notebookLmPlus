@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
 import { getOwnedSource } from "@/lib/db/queries";
@@ -24,8 +24,15 @@ export const POST = apiHandler(async (_req: Request, { params }: Params) => {
     throw new PublicError("Upload didn't complete. Please try again.");
   }
 
-  processSource(id).catch((err) => {
-    console.error(`[sources] processSource(${id}) failed`, err);
+  // after() keeps the serverless invocation alive for this work. A bare
+  // fire-and-forget promise is killed the instant the response is sent, which
+  // left sources stuck on "uploading" forever.
+  after(async () => {
+    try {
+      await processSource(id);
+    } catch (err) {
+      console.error(`[sources] processSource(${id}) failed`, err);
+    }
   });
 
   return NextResponse.json({ id: source.id });

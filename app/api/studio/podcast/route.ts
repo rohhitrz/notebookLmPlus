@@ -1,4 +1,4 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { after, NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { apiHandler } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
@@ -8,6 +8,11 @@ import { getOwnedNotebook } from "@/lib/db/queries";
 import { artifacts } from "@/lib/db/schema";
 import { generatePodcast } from "@/lib/studio/podcast";
 import { PODCAST_LENGTHS } from "@/lib/types";
+
+// Generation continues after the response via after(), so it runs inside this
+// invocation. 60s is the Vercel Hobby ceiling; raise it if you upgrade plans.
+export const runtime = "nodejs";
+export const maxDuration = 60;
 
 const bodySchema = z.object({
   notebookId: z.string().uuid(),
@@ -21,8 +26,14 @@ function runInBackground(
   sourceIds: string[],
   length: (typeof PODCAST_LENGTHS)[number],
 ) {
-  generatePodcast(artifactId, notebookId, sourceIds, length).catch((err) => {
-    console.error(`[studio] generatePodcast(${artifactId}) failed`, err);
+  // after() keeps the serverless invocation alive; a bare promise is killed
+  // when the response is sent, leaving the artifact stuck "generating".
+  after(async () => {
+    try {
+      await generatePodcast(artifactId, notebookId, sourceIds, length);
+    } catch (err) {
+      console.error(`[studio] generatePodcast(${artifactId}) failed`, err);
+    }
   });
 }
 

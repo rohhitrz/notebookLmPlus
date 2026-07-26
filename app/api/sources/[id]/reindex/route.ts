@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -9,6 +9,10 @@ import { processSource } from "@/lib/ingest/pipeline";
 import { deleteBySource } from "@/lib/vectorstore";
 
 type Params = { params: Promise<{ id: string }> };
+
+// Re-indexing continues after the response via after().
+export const runtime = "nodejs";
+export const maxDuration = 60;
 
 export const POST = apiHandler(async (_req: Request, { params }: Params) => {
   const userId = await requireUser();
@@ -21,8 +25,12 @@ export const POST = apiHandler(async (_req: Request, { params }: Params) => {
     .set({ status: "uploading", errorMessage: null })
     .where(eq(sources.id, id));
 
-  processSource(id).catch((err) => {
-    console.error(`[sources] reindex processSource(${id}) failed`, err);
+  after(async () => {
+    try {
+      await processSource(id);
+    } catch (err) {
+      console.error(`[sources] reindex processSource(${id}) failed`, err);
+    }
   });
 
   return NextResponse.json({ id: source.id });
