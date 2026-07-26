@@ -1,4 +1,3 @@
-import { eq } from "drizzle-orm";
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { apiHandler } from "@/lib/api";
@@ -8,22 +7,13 @@ import { getOwnedNotebook } from "@/lib/db/queries";
 import { sources } from "@/lib/db/schema";
 import { resolveYoutubeUrls } from "@/lib/ingest/extractors/youtube";
 import { processSource } from "@/lib/ingest/pipeline";
-import { uploadSourceFile } from "@/lib/storage";
 
 type Params = { params: Promise<{ id: string }> };
 
-const uploadTypeSchema = z.enum(["pdf", "text", "vtt"]);
-
-const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // 25 MB
-
-// Only ever derive the storage key's extension from an allowlist — the raw
-// filename is attacker-controlled and must not reach the storage path.
-const EXTENSION_BY_TYPE: Record<z.infer<typeof uploadTypeSchema>, string> = {
-  pdf: "pdf",
-  text: "txt",
-  vtt: "vtt",
-};
-
+// File sources (pdf, vtt) are uploaded straight to Storage from the browser via
+// /sources/upload-url + /sources/[id]/process, so they never hit this route's
+// request body (Vercel caps that at 4.5 MB). This route handles only the
+// text-bearing source types.
 const jsonSourceSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("url"), url: z.string().url() }),
   z.object({ type: z.literal("youtube"), url: z.string().url() }),
@@ -44,47 +34,6 @@ export const POST = apiHandler(async (req: NextRequest, { params }: Params) => {
   const userId = await requireUser();
   const { id: notebookId } = await params;
   await getOwnedNotebook(notebookId, userId);
-
-  const contentType = req.headers.get("content-type") ?? "";
-
-  if (contentType.includes("multipart/form-data")) {
-    const form = await req.formData();
-    const type = uploadTypeSchema.parse(form.get("type"));
-    const file = form.get("file");
-    if (!(file instanceof File) || file.size === 0) {
-      return NextResponse.json({ error: "file is required" }, { status: 400 });
-    }
-    if (file.size > MAX_UPLOAD_BYTES) {
-      return NextResponse.json(
-        { error: `File is too large (max ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB).` },
-        { status: 413 },
-      );
-    }
-    const titleField = form.get("title");
-    // Cap the stored title so a huge filename can't bloat rows or the UI.
-    const title = (
-      (typeof titleField === "string" && titleField.trim()) ||
-      file.name
-    ).slice(0, 200);
-
-    const [source] = await db
-      .insert(sources)
-      .values({ notebookId, type, title, status: "uploading" })
-      .returning();
-
-    const storagePath = `${notebookId}/${source.id}.${EXTENSION_BY_TYPE[type]}`;
-    await uploadSourceFile(storagePath, file, file.type);
-    await db
-      .update(sources)
-      .set({ origin: storagePath })
-      .where(eq(sources.id, source.id));
-
-    runInBackground(source.id);
-    return NextResponse.json(
-      { items: [{ id: source.id, type: source.type, title: source.title }] },
-      { status: 201 },
-    );
-  }
 
   const body = jsonSourceSchema.parse(await req.json());
 

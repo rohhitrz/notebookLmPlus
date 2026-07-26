@@ -8,15 +8,30 @@ const supabase = createClient(
 const SOURCES_BUCKET = "sources";
 const ARTIFACTS_BUCKET = "artifacts";
 
-export async function uploadSourceFile(
+// One-time signed URL that lets the browser upload a source file straight to
+// Storage, bypassing the serverless function's request-body limit (4.5 MB on
+// Vercel). The returned token authorizes a write to exactly this path.
+export async function createSourceUploadUrl(
   path: string,
-  file: Blob,
-  contentType?: string,
-): Promise<void> {
-  const { error } = await supabase.storage
+): Promise<{ path: string; token: string }> {
+  const { data, error } = await supabase.storage
     .from(SOURCES_BUCKET)
-    .upload(path, file, { contentType, upsert: true });
+    .createSignedUploadUrl(path);
   if (error) throw error;
+  return { path: data.path, token: data.token };
+}
+
+// Whether an object exists at `path` in the sources bucket — used to confirm a
+// direct browser upload actually landed before we kick off processing.
+export async function sourceFileExists(path: string): Promise<boolean> {
+  const slash = path.lastIndexOf("/");
+  const dir = slash === -1 ? "" : path.slice(0, slash);
+  const name = slash === -1 ? path : path.slice(slash + 1);
+  const { data, error } = await supabase.storage
+    .from(SOURCES_BUCKET)
+    .list(dir, { search: name, limit: 1 });
+  if (error) throw error;
+  return (data ?? []).some((f) => f.name === name);
 }
 
 export async function downloadSourceFile(path: string): Promise<ArrayBuffer> {

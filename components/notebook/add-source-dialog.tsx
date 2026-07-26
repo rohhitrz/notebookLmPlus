@@ -23,7 +23,10 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { supabaseBrowser } from "@/lib/supabase-browser";
 import type { SourceListItem } from "@/lib/types";
+
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // keep in step with the server
 
 interface AddSourceDialogProps {
   notebookId: string;
@@ -101,19 +104,68 @@ export function AddSourceDialog({ notebookId, onAdded }: AddSourceDialogProps) {
     }
   }
 
-  function handleFileSubmit(type: "pdf" | "vtt") {
+  // Files upload straight to Storage from the browser (via a one-time signed
+  // URL) rather than through our API, so large PDFs aren't rejected by the
+  // serverless request-body limit. Flow: mint URL → PUT file to Storage →
+  // tell the server to start processing.
+  async function handleFileSubmit(type: "pdf" | "vtt") {
     if (!file) return;
     const ext = file.name.split(".").pop()?.toLowerCase();
     if (ext !== type) {
       toast.error(`Please choose a .${type} file`);
       return;
     }
-    const form = new FormData();
-    form.set("type", type);
-    form.set("file", file);
-    submitAndClose(() =>
-      fetch(`/api/notebooks/${notebookId}/sources`, { method: "POST", body: form }),
-    );
+    if (file.size > MAX_UPLOAD_BYTES) {
+      toast.error(`That file is too large (max ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB).`);
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const urlRes = await fetch(`/api/notebooks/${notebookId}/sources/upload-url`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type, filename: file.name, size: file.size }),
+      });
+      if (!urlRes.ok) {
+        const body = await urlRes.json().catch(() => ({}));
+        throw new Error(body.error ?? "Couldn't start the upload");
+      }
+      const { sourceId, path, token, item } = (await urlRes.json()) as {
+        sourceId: string;
+        path: string;
+        token: string;
+        item: { id: string; type: SourceListItem["type"]; title: string };
+      };
+
+      const { error: uploadError } = await supabaseBrowser.storage
+        .from("sources")
+        .uploadToSignedUrl(path, token, file, {
+          contentType: file.type || (type === "pdf" ? "application/pdf" : "text/vtt"),
+        });
+      if (uploadError) throw new Error("Upload failed. Please try again.");
+
+      const processRes = await fetch(`/api/sources/${sourceId}/process`, { method: "POST" });
+      if (!processRes.ok) {
+        const body = await processRes.json().catch(() => ({}));
+        throw new Error(body.error ?? "Uploaded, but processing didn't start");
+      }
+
+      onAdded([
+        {
+          id: item.id,
+          type: item.type,
+          title: item.title,
+          status: "uploading",
+          errorMessage: null,
+        },
+      ]);
+      handleOpenChange(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to add source");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   function handleUrlSubmit() {
