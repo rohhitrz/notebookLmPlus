@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { ChunkDetail, Citation, SourceDetail } from "@/lib/types";
 
 // react-pdf touches browser-only globals (DOMMatrix) at module load, which
@@ -78,6 +79,10 @@ export function SourceViewer({ citation, onClose }: SourceViewerProps) {
 
     async function load() {
       setLoading(true);
+      // Clear the previous citation's content so it can't flash while the new
+      // one loads.
+      setSource(null);
+      setChunk(null);
       try {
         const [s, c] = await Promise.all([
           fetch(`/api/sources/${citation!.sourceId}`).then((r) => r.json()),
@@ -111,7 +116,13 @@ export function SourceViewer({ citation, onClose }: SourceViewerProps) {
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto px-4 pb-4">
-          {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
+          {loading && (
+            <div className="flex flex-col gap-2.5 pt-1">
+              {[95, 100, 88, 92, 70, 100, 84].map((w, i) => (
+                <Skeleton key={i} className="h-4" style={{ width: `${w}%` }} />
+              ))}
+            </div>
+          )}
 
           {!loading && source?.type === "pdf" && (
             <PdfViewer
