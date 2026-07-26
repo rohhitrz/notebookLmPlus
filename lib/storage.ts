@@ -21,19 +21,6 @@ export async function createSourceUploadUrl(
   return { path: data.path, token: data.token };
 }
 
-// Whether an object exists at `path` in the sources bucket — used to confirm a
-// direct browser upload actually landed before we kick off processing.
-export async function sourceFileExists(path: string): Promise<boolean> {
-  const slash = path.lastIndexOf("/");
-  const dir = slash === -1 ? "" : path.slice(0, slash);
-  const name = slash === -1 ? path : path.slice(slash + 1);
-  const { data, error } = await supabase.storage
-    .from(SOURCES_BUCKET)
-    .list(dir, { search: name, limit: 1 });
-  if (error) throw error;
-  return (data ?? []).some((f) => f.name === name);
-}
-
 export async function downloadSourceFile(path: string): Promise<ArrayBuffer> {
   const { data, error } = await supabase.storage.from(SOURCES_BUCKET).download(path);
   if (error) throw error;
