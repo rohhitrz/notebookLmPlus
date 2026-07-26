@@ -131,17 +131,18 @@ export function CreateLearningProjectDialog() {
           </Button>
         }
       />
-      <DialogContent className="flex max-h-[88dvh] flex-col">
+      <DialogContent>
         {scope && (phase === "options" || phase === "creating") ? (
           <>
-            <DialogHeader className="shrink-0">
+            <DialogHeader>
               <DialogTitle>Let&apos;s narrow this down</DialogTitle>
               <DialogDescription>{scope.clarifyingQuestion}</DialogDescription>
             </DialogHeader>
 
-            {/* Only this list scrolls, so the header and the action buttons
-                below always stay on screen no matter how many options come back. */}
-            <div className="-mr-2 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-2">
+            {/* Only this list scrolls (capped at 45vh), so no matter how many
+                options come back the dialog stays within the viewport and the
+                footer keeps its flush-to-bottom bar styling. */}
+            <div className="-mr-2 flex max-h-[45vh] flex-col gap-2 overflow-y-auto pr-2">
               {scope.options.map((opt, i) => {
                 const isOn = selected.has(i);
                 return (
@@ -162,12 +163,12 @@ export function CreateLearningProjectDialog() {
                 );
               })}
             </div>
-            <p className="shrink-0 text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               These are narrower slices of your topic. Tap the ones you want for a focused
               roadmap — or skip to cover your whole topic broadly.
             </p>
 
-            <DialogFooter className="shrink-0 sm:justify-between">
+            <DialogFooter className="sm:justify-between">
               <Button variant="ghost" onClick={() => setPhase("form")} disabled={busy}>
                 <ArrowLeft className="size-4" />
                 Back
