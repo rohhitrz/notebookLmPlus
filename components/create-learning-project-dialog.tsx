@@ -163,7 +163,8 @@ export function CreateLearningProjectDialog() {
               })}
             </div>
             <p className="shrink-0 text-xs text-muted-foreground">
-              Pick one or combine a few — we&apos;ll build a focused roadmap around your choices.
+              These are narrower slices of your topic. Tap the ones you want for a focused
+              roadmap — or skip to cover your whole topic broadly.
             </p>
 
             <DialogFooter className="shrink-0 sm:justify-between">
@@ -173,7 +174,7 @@ export function CreateLearningProjectDialog() {
               </Button>
               <div className="flex gap-2">
                 <Button variant="outline" onClick={() => build(goal.trim())} disabled={busy}>
-                  Use my goal as-is
+                  Skip, cover it all
                 </Button>
                 <Button onClick={buildFromSelection} disabled={busy || selected.size === 0}>
                   {phase === "creating" ? (
@@ -181,7 +182,9 @@ export function CreateLearningProjectDialog() {
                   ) : (
                     <Sparkles className="size-4" />
                   )}
-                  Build roadmap
+                  {selected.size === 0
+                    ? "Pick an area"
+                    : `Build roadmap${selected.size > 1 ? ` · ${selected.size}` : ""}`}
                 </Button>
               </div>
             </DialogFooter>
