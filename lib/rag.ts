@@ -10,7 +10,15 @@ import { searchChunks, type ChunkSearchResult } from "@/lib/vectorstore";
 export const NO_SOURCES_MESSAGE = "I couldn't find this in your sources.";
 
 const RERANK_KEEP = 8;
-const MIN_RERANK_SCORE = 4;
+// Advisory bar, not a hard gate (see rerankChunks): kept modest so borderline
+// phrasing differences between the question and the source don't discard
+// genuinely relevant chunks.
+const MIN_RERANK_SCORE = 3;
+// Only the recent tail of the conversation informs the query rewrite. Feeding
+// the whole transcript lets a run of earlier "couldn't find it" exchanges skew
+// how a fresh question gets rewritten — the same question asked twice could
+// retrieve differently purely because of what happened in between.
+const TRANSFORM_HISTORY_MESSAGES = 6;
 // Cap on the merged candidate pool sent to the reranker across all query variants.
 const MAX_CANDIDATES = 30;
 
@@ -36,8 +44,9 @@ async function transformQuery(
   question: string,
   history: ChatMessage[],
 ): Promise<{ standalone: string; searchQueries: string[] }> {
-  const transcript = history.length
-    ? history.map((m) => `${m.role}: ${m.content}`).join("\n")
+  const recent = history.slice(-TRANSFORM_HISTORY_MESSAGES);
+  const transcript = recent.length
+    ? recent.map((m) => `${m.role}: ${m.content}`).join("\n")
     : "(no earlier messages)";
 
   const prompt = `You prepare a user's question for searching a knowledge base. Return JSON with two fields:
@@ -83,15 +92,32 @@ Question: ${standaloneQuestion}
 Excerpts:
 ${candidates.map((c, i) => `[${i}] ${c.content.slice(0, 500)}`).join("\n\n")}`;
 
-  const { scores } = await chatJSON(prompt, rerankSchema);
+  // The reranker improves precision but must never be a single point of
+  // failure: if it errors, or filters out every candidate, fall back to the
+  // best vector matches (candidates arrive sorted by similarity). The answer
+  // model is instructed to say "not covered" when sources genuinely don't
+  // help, so a permissive fallback can't make it hallucinate — but a hard
+  // empty result here WOULD produce a false "couldn't find this in your
+  // sources" for content that exists.
+  let scores: { index: number; score: number }[];
+  try {
+    ({ scores } = await chatJSON(prompt, rerankSchema));
+  } catch (err) {
+    console.error("[rag] rerank failed; falling back to vector order", err);
+    return candidates.slice(0, keep);
+  }
+
   const scoreByIndex = new Map(scores.map((s) => [s.index, s.score]));
 
-  return candidates
+  const kept = candidates
     .map((chunk, i) => ({ chunk, score: scoreByIndex.get(i) ?? 0 }))
     .filter((x) => x.score >= MIN_RERANK_SCORE)
     .sort((a, b) => b.score - a.score)
     .slice(0, keep)
     .map((x) => x.chunk);
+
+  if (kept.length > 0) return kept;
+  return candidates.slice(0, Math.min(4, candidates.length));
 }
 
 export interface RetrievalResult {
@@ -187,7 +213,10 @@ export function generateAnswer(
   chunks: RetrievedChunk[],
 ): AsyncGenerator<string> {
   const system = buildSystemPrompt(chunks);
-  return chat([{ role: "user", content: standaloneQuestion }], system);
+  // Grounded QA should be repeatable: the same question over the same sources
+  // must produce the same answer, not a different phrasing (or a different
+  // conclusion) per run.
+  return chat([{ role: "user", content: standaloneQuestion }], system, { temperature: 0 });
 }
 
 export function parseCitations(

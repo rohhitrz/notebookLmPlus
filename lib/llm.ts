@@ -39,10 +39,12 @@ async function withBackoff<T>(fn: () => Promise<T>, retries = 3): Promise<T> {
 export async function* chat(
   messages: ChatMessage[],
   system?: string,
+  opts: { temperature?: number } = {},
 ): AsyncGenerator<string> {
   const stream = await openai.chat.completions.create({
     model: process.env.OPENAI_CHAT_MODEL!,
     stream: true,
+    ...(opts.temperature != null ? { temperature: opts.temperature } : {}),
     messages: [
       ...(system ? [{ role: "system" as const, content: system }] : []),
       ...messages.map((m) => ({ role: m.role, content: m.content })),
@@ -67,6 +69,10 @@ export async function chatJSON<T extends z.ZodTypeAny>(
       model: process.env.OPENAI_CHAT_MODEL!,
       messages: [{ role: "user", content: prompt }],
       response_format: zodResponseFormat(schema, "response"),
+      // Structured calls (query rewrite, rerank scores, roadmaps) must be
+      // repeatable: at default temperature the same question could retrieve
+      // different chunks on different runs and produce contradictory answers.
+      temperature: 0,
     }),
   );
   const parsed = completion.choices[0]?.message?.parsed;

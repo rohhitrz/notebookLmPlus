@@ -216,6 +216,13 @@ export function ChatPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ notebookId, chatId: chatIdRef.current, message: text }),
       });
+      if (res.status === 401) {
+        throw new Error("Your session expired — refresh the page and send again.");
+      }
+      if (res.status === 429) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? "You're sending messages too quickly — try again shortly.");
+      }
       if (!res.ok || !res.body) throw new Error("Failed to reach chat");
 
       for await (const evt of parseSSEStream(res.body)) {
@@ -234,11 +241,28 @@ export function ChatPanel({
         } else if (evt.event === "action") {
           onAction?.(evt.data as ChatAction);
         } else if (evt.event === "error") {
-          toast.error((evt.data as { message: string }).message);
+          // Route through the catch below so a failed reply also cleans up the
+          // empty assistant bubble instead of leaving "…" on screen.
+          throw new Error((evt.data as { message: string }).message);
         }
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Something went wrong");
+      // A TypeError from fetch means the request never reached us — usually a
+      // dropped connection, or an expired auth session whose redirect was
+      // blocked by CORS. Without naming it, the chat just looks frozen.
+      const message =
+        err instanceof TypeError
+          ? "Couldn't reach the server — check your connection or refresh the page (your session may have expired)."
+          : err instanceof Error
+            ? err.message
+            : "Something went wrong";
+      toast.error(message);
+      // Restore the unsent text so it isn't lost, and drop the empty assistant
+      // bubble — otherwise a failed send leaves a "…" reply hanging forever.
+      setInput((prev) => prev || text);
+      setMessages((prev) =>
+        prev.filter((m) => !(m.id === assistantId && m.content === "")),
+      );
     } finally {
       setStreaming(false);
     }
