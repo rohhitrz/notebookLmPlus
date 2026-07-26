@@ -106,13 +106,22 @@ Sources:
 ${scoped.length ? buildSourcesBlock(scoped) : "(no matching source material was found — for every slide in this batch, output the single bullet \"Not covered in the provided sources\")"}`;
 
   const result = await chatJSON(prompt, slideBatchSchema);
-  if (result.slides.length !== batch.length) {
-    throw new Error(
-      `Slide batch returned ${result.slides.length} slides, expected ${batch.length}`,
-    );
+
+  // Models occasionally return a different number of slides than planned (e.g.
+  // splitting one topic into two). That used to throw and fail the whole deck,
+  // which is a harsh outcome for a recoverable mismatch: every slide's title and
+  // kind comes from our own outline below, so surplus entries can simply be
+  // dropped and a shortfall filled with an honest placeholder.
+  const slides = result.slides.slice(0, batch.length);
+  while (slides.length < batch.length) {
+    slides.push({
+      bullets: ["Not covered in the provided sources"],
+      speakerNotes: "",
+      sourceRefIndexes: [],
+    });
   }
 
-  return result.slides.map((s, i) => {
+  return slides.map((s, i) => {
     const refs = [...new Set(s.sourceRefIndexes)]
       .map((n) => scoped[n - 1])
       .filter((c): c is RetrievedChunk => !!c);
