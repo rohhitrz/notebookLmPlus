@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { parseSSEStream } from "@/lib/sse-client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { CodeBlock } from "@/components/ui/code-block";
 import { ChatPanel, type ChatAction } from "@/components/notebook/chat-panel";
 import type {
   ChapterCitation,
@@ -127,7 +128,7 @@ function LessonBody({ text, citations }: { text: string; citations: ChapterCitat
   const byN = new Map(citations.map((c) => [c.n, c]));
 
   function renderInline(line: string, key: string): ReactNode[] {
-    return line.split(/(\*\*[^*]+\*\*|\[\d+\])/g).map((part, i) => {
+    return line.split(/(\*\*[^*]+\*\*|`[^`]+`|\[\d+\])/g).map((part, i) => {
       const cite = part.match(/^\[(\d+)\]$/);
       if (cite) {
         const c = byN.get(Number(cite[1]));
@@ -143,6 +144,17 @@ function LessonBody({ text, citations }: { text: string; citations: ChapterCitat
           >
             [{c.n}]
           </a>
+        );
+      }
+      const inlineCode = part.match(/^`([^`]+)`$/);
+      if (inlineCode) {
+        return (
+          <code
+            key={`${key}-${i}`}
+            className="rounded bg-muted px-1.5 py-0.5 font-mono text-[0.85em]"
+          >
+            {inlineCode[1]}
+          </code>
         );
       }
       const bold = part.match(/^\*\*([^*]+)\*\*$/);
@@ -168,8 +180,28 @@ function LessonBody({ text, citations }: { text: string; citations: ChapterCitat
     );
   };
 
-  for (const raw of lines) {
-    const line = raw.trim();
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i].trim();
+
+    // Fenced code block: ```lang … ```. Collect raw (untrimmed) lines so
+    // indentation survives. A fence left unclosed mid-stream renders anyway.
+    const fence = line.match(/^```([\w+-]*)/);
+    if (fence) {
+      flushBullets();
+      const lang = fence[1] || undefined;
+      const code: string[] = [];
+      i++;
+      while (i < lines.length && !lines[i].trim().startsWith("```")) {
+        code.push(lines[i]);
+        i++;
+      }
+      if (i < lines.length) i++; // consume the closing fence
+      blocks.push(
+        <CodeBlock key={`code-${blocks.length}`} code={code.join("\n")} lang={lang} />,
+      );
+      continue;
+    }
 
     const heading = line.match(/^(#{2,4})\s+(.*)$/);
     if (heading) {
@@ -192,12 +224,14 @@ function LessonBody({ text, citations }: { text: string; citations: ChapterCitat
           </h3>
         ),
       );
+      i++;
       continue;
     }
 
     const bullet = line.match(/^[-*]\s+(.*)$/);
     if (bullet) {
       bullets.push(bullet[1]);
+      i++;
       continue;
     }
     flushBullets();
@@ -208,6 +242,7 @@ function LessonBody({ text, citations }: { text: string; citations: ChapterCitat
         </p>,
       );
     }
+    i++;
   }
   flushBullets();
 

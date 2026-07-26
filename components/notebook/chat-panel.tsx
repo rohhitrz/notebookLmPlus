@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { CitationChip } from "@/components/notebook/citation-chip";
+import { CodeBlock } from "@/components/ui/code-block";
 import { parseSSEStream } from "@/lib/sse-client";
 import type { Citation, DisplayMessage } from "@/lib/types";
 
@@ -31,7 +32,7 @@ function renderInline(
   keyPrefix: string,
 ) {
   const citationByN = new Map(citations.map((c) => [c.n, c]));
-  const parts = text.split(/(\*\*[^*]+\*\*|\[\d+\])/g);
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`|\[\d+\])/g);
   return parts.map((part, i) => {
     const citationMatch = part.match(/^\[(\d+)\]$/);
     if (citationMatch) {
@@ -43,6 +44,17 @@ function renderInline(
           citation={citationByN.get(n)}
           onClick={onCitationClick}
         />
+      );
+    }
+    const inlineCode = part.match(/^`([^`]+)`$/);
+    if (inlineCode) {
+      return (
+        <code
+          key={`${keyPrefix}-${i}`}
+          className="rounded bg-background/60 px-1.5 py-0.5 font-mono text-[0.85em]"
+        >
+          {inlineCode[1]}
+        </code>
       );
     }
     const boldMatch = part.match(/^\*\*([^*]+)\*\*$/);
@@ -77,6 +89,23 @@ function renderContent(
 
   let i = 0;
   while (i < lines.length) {
+    // Fenced code block — collect raw lines so indentation survives; an
+    // unclosed fence mid-stream still renders.
+    const fence = lines[i].trim().match(/^```([\w+-]*)/);
+    if (fence) {
+      flushParagraph();
+      const lang = fence[1] || undefined;
+      const code: string[] = [];
+      i++;
+      while (i < lines.length && !lines[i].trim().startsWith("```")) {
+        code.push(lines[i]);
+        i++;
+      }
+      if (i < lines.length) i++;
+      blocks.push(<CodeBlock key={`code-${blocks.length}`} code={code.join("\n")} lang={lang} />);
+      continue;
+    }
+
     const bulletMatch = lines[i].match(BULLET_RE);
     const numberedMatch = lines[i].match(NUMBERED_RE);
     const listRe = bulletMatch ? BULLET_RE : numberedMatch ? NUMBERED_RE : null;
