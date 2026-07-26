@@ -6,11 +6,6 @@ import { downloadSourceFile } from "@/lib/storage";
 import type { SourceStatus } from "@/lib/types";
 import { upsertChunks } from "@/lib/vectorstore";
 import { chunkExtractResult } from "./chunker";
-import { extractPdf } from "./extractors/pdf";
-import { extractText } from "./extractors/text";
-import { extractUrl } from "./extractors/url";
-import { extractVtt } from "./extractors/vtt";
-import { extractYoutube } from "./extractors/youtube";
 import type { ExtractResult } from "./types";
 
 type SourceRow = typeof sources.$inferSelect;
@@ -23,9 +18,15 @@ async function setStatus(
   await db.update(sources).set({ status, errorMessage }).where(eq(sources.id, sourceId));
 }
 
+// Extractors are imported lazily, per source type. Loading them all eagerly
+// pulled youtubei.js, bgutils-js and jsdom into every route that touches the
+// pipeline — a large, native-dependency-heavy module graph that a PDF or VTT
+// import has no use for, and which can fail to initialize in a serverless
+// bundle (crashing the function before any of our error handling runs).
 async function extract(source: SourceRow): Promise<ExtractResult> {
   switch (source.type) {
     case "text": {
+      const { extractText } = await import("./extractors/text");
       if (source.origin) {
         const buf = await downloadSourceFile(source.origin);
         return extractText(new TextDecoder().decode(buf));
@@ -33,17 +34,23 @@ async function extract(source: SourceRow): Promise<ExtractResult> {
       return extractText(source.rawContent ?? "");
     }
     case "pdf": {
+      const { extractPdf } = await import("./extractors/pdf");
       const buf = await downloadSourceFile(source.origin!);
       return extractPdf(new Uint8Array(buf));
     }
     case "vtt": {
+      const { extractVtt } = await import("./extractors/vtt");
       const buf = await downloadSourceFile(source.origin!);
       return extractVtt(new TextDecoder().decode(buf));
     }
-    case "url":
+    case "url": {
+      const { extractUrl } = await import("./extractors/url");
       return extractUrl(source.origin!);
-    case "youtube":
+    }
+    case "youtube": {
+      const { extractYoutube } = await import("./extractors/youtube");
       return extractYoutube(source.origin!);
+    }
   }
 }
 

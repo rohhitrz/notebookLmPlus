@@ -146,21 +146,26 @@ export function AddSourceDialog({ notebookId, onAdded }: AddSourceDialogProps) {
       if (uploadError) throw new Error("Upload failed. Please try again.");
 
       const processRes = await fetch(`/api/sources/${sourceId}/process`, { method: "POST" });
-      if (!processRes.ok) {
-        const body = await processRes.json().catch(() => ({}));
-        throw new Error(body.error ?? "Uploaded, but processing didn't start");
-      }
 
+      // The source row already exists either way, so always show it in the list
+      // — with an error state if indexing couldn't be started, so it can be
+      // retried or removed instead of silently sitting there.
       onAdded([
         {
           id: item.id,
           type: item.type,
           title: item.title,
-          status: "uploading",
-          errorMessage: null,
+          status: processRes.ok ? "uploading" : "error",
+          errorMessage: processRes.ok
+            ? null
+            : "Couldn't start indexing. Use Re-index to try again.",
         },
       ]);
       handleOpenChange(false);
+
+      if (!processRes.ok) {
+        toast.error("Uploaded, but indexing didn't start. Try Re-index on the source.");
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to add source");
     } finally {

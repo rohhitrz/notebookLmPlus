@@ -5,8 +5,7 @@ import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getOwnedNotebook } from "@/lib/db/queries";
 import { sources } from "@/lib/db/schema";
-import { resolveYoutubeUrls } from "@/lib/ingest/extractors/youtube";
-import { processSource } from "@/lib/ingest/pipeline";
+import { eq } from "drizzle-orm";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -31,13 +30,25 @@ const jsonSourceSchema = z.discriminatedUnion("type", [
 
 // Indexing runs after the response so the request returns immediately and the
 // UI polls for status. after() is required on serverless: a bare fire-and-forget
-// promise is killed the moment the response is sent.
+// promise is killed the moment the response is sent. The pipeline is imported
+// dynamically so a load failure becomes a recorded "error" status rather than a
+// module-init crash that kills the function before any handling exists.
 function runInBackground(sourceId: string) {
   after(async () => {
     try {
+      const { processSource } = await import("@/lib/ingest/pipeline");
       await processSource(sourceId);
     } catch (err) {
       console.error(`[sources] processSource(${sourceId}) failed`, err);
+      await db
+        .update(sources)
+        .set({
+          status: "error",
+          errorMessage:
+            err instanceof Error ? err.message.slice(0, 500) : "Indexing failed",
+        })
+        .where(eq(sources.id, sourceId))
+        .catch(() => {});
     }
   });
 }
@@ -50,6 +61,8 @@ export const POST = apiHandler(async (req: NextRequest, { params }: Params) => {
   const body = jsonSourceSchema.parse(await req.json());
 
   if (body.type === "youtube") {
+    // Imported here so youtubei.js only loads when a YouTube URL is actually added.
+    const { resolveYoutubeUrls } = await import("@/lib/ingest/extractors/youtube");
     const resolved = await resolveYoutubeUrls(body.url);
     const items = await Promise.all(
       resolved.map(async (video) => {

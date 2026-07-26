@@ -5,7 +5,6 @@ import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getOwnedSource } from "@/lib/db/queries";
 import { sources } from "@/lib/db/schema";
-import { processSource } from "@/lib/ingest/pipeline";
 import { deleteBySource } from "@/lib/vectorstore";
 
 type Params = { params: Promise<{ id: string }> };
@@ -27,9 +26,19 @@ export const POST = apiHandler(async (_req: Request, { params }: Params) => {
 
   after(async () => {
     try {
+      const { processSource } = await import("@/lib/ingest/pipeline");
       await processSource(id);
     } catch (err) {
       console.error(`[sources] reindex processSource(${id}) failed`, err);
+      await db
+        .update(sources)
+        .set({
+          status: "error",
+          errorMessage:
+            err instanceof Error ? err.message.slice(0, 500) : "Indexing failed",
+        })
+        .where(eq(sources.id, id))
+        .catch(() => {});
     }
   });
 
