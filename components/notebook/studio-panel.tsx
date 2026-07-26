@@ -144,7 +144,6 @@ export function StudioPanel({ notebookId, sources, initialArtifacts }: StudioPan
       generatingIds.forEach((id) => fetchDetail(id));
     }, 2500);
     return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [artifactList, details]);
 
   function toggleSource(id: string) {

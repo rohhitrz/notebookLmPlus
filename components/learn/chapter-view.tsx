@@ -165,18 +165,25 @@ function LessonBody({ text, citations }: { text: string; citations: ChapterCitat
 
   const lines = text.split("\n");
   const blocks: ReactNode[] = [];
-  let bullets: string[] = [];
+  let listItems: string[] = [];
+  let listOrdered = false;
 
-  const flushBullets = () => {
-    if (!bullets.length) return;
-    const items = bullets;
-    bullets = [];
+  const flushList = () => {
+    if (!listItems.length) return;
+    const items = listItems;
+    listItems = [];
+    const Tag = listOrdered ? "ol" : "ul";
     blocks.push(
-      <ul key={`ul-${blocks.length}`} className="list-disc space-y-1 pl-5">
+      <Tag
+        key={`list-${blocks.length}`}
+        className={
+          listOrdered ? "list-decimal space-y-1 pl-5" : "list-disc space-y-1 pl-5"
+        }
+      >
         {items.map((b, i) => (
-          <li key={i}>{renderInline(b, `ul-${blocks.length}-${i}`)}</li>
+          <li key={i}>{renderInline(b, `list-${blocks.length}-${i}`)}</li>
         ))}
-      </ul>,
+      </Tag>,
     );
   };
 
@@ -188,7 +195,7 @@ function LessonBody({ text, citations }: { text: string; citations: ChapterCitat
     // indentation survives. A fence left unclosed mid-stream renders anyway.
     const fence = line.match(/^```([\w+-]*)/);
     if (fence) {
-      flushBullets();
+      flushList();
       const lang = fence[1] || undefined;
       const code: string[] = [];
       i++;
@@ -205,7 +212,7 @@ function LessonBody({ text, citations }: { text: string; citations: ChapterCitat
 
     const heading = line.match(/^(#{2,4})\s+(.*)$/);
     if (heading) {
-      flushBullets();
+      flushList();
       const big = heading[1].length <= 2;
       blocks.push(
         big ? (
@@ -228,13 +235,18 @@ function LessonBody({ text, citations }: { text: string; citations: ChapterCitat
       continue;
     }
 
+    const ordered = line.match(/^\d+[.)]\s+(.*)$/);
     const bullet = line.match(/^[-*]\s+(.*)$/);
-    if (bullet) {
-      bullets.push(bullet[1]);
+    if (ordered || bullet) {
+      const isOrdered = Boolean(ordered);
+      // A change of list type ends the previous list and starts a new one.
+      if (listItems.length && isOrdered !== listOrdered) flushList();
+      listOrdered = isOrdered;
+      listItems.push((ordered ?? bullet)![1]);
       i++;
       continue;
     }
-    flushBullets();
+    flushList();
     if (line) {
       blocks.push(
         <p key={`p-${blocks.length}`} className="leading-relaxed">
@@ -244,7 +256,7 @@ function LessonBody({ text, citations }: { text: string; citations: ChapterCitat
     }
     i++;
   }
-  flushBullets();
+  flushList();
 
   // Long-form lesson prose gets the reading serif at a comfortable measure;
   // headings stay in the UI sans (set on each heading) for contrast.
