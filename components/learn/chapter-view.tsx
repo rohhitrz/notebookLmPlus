@@ -51,66 +51,6 @@ function ChapterMeta({ item }: { item: RoadmapItem }) {
   );
 }
 
-// The chapter's illustration. Renders the stored image, or generates one on
-// first view (the lesson text is already visible by then, so the slower image
-// load never blocks reading). Silently hides itself if generation fails.
-function ChapterImage({
-  notebookId,
-  item,
-  onChapter,
-}: Pick<ChapterViewProps, "notebookId" | "item" | "onChapter">) {
-  const content = item.content;
-  const imageUrl = content?.imageUrl ?? null;
-  const [failed, setFailed] = useState(false);
-  const requested = useRef(false);
-
-  useEffect(() => {
-    if (!content || imageUrl || failed || requested.current) return;
-    requested.current = true;
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/api/learn/chapters/image", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ notebookId, roadmapItemId: item.id }),
-        });
-        if (!res.ok) throw new Error("image failed");
-        const { imageUrl: url } = (await res.json()) as { imageUrl: string | null };
-        if (cancelled) return;
-        if (url) onChapter(item.id, { ...content, imageUrl: url });
-        else setFailed(true);
-      } catch {
-        if (!cancelled) setFailed(true);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [content, imageUrl, failed, notebookId, item.id, onChapter]);
-
-  if (!content || failed) return null;
-
-  return (
-    <figure className="overflow-hidden rounded-xl border bg-muted/40">
-      {imageUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={imageUrl}
-          alt={`Visual summary of ${item.concept}`}
-          className="aspect-[3/2] w-full bg-card object-contain"
-          onError={() => setFailed(true)}
-        />
-      ) : (
-        <div className="flex aspect-[3/2] w-full flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="size-5 animate-spin text-primary" />
-          Illustrating this chapter…
-        </div>
-      )}
-    </figure>
-  );
-}
-
 interface ChapterViewProps {
   notebookId: string;
   item: RoadmapItem;
@@ -397,8 +337,6 @@ function Lesson({
             <p className="text-sm text-muted-foreground">{content.overview}</p>
           )}
         </header>
-
-        {content && <ChapterImage notebookId={notebookId} item={item} onChapter={onChapter} />}
 
         {legacy ? (
           <>

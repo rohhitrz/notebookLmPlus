@@ -37,8 +37,6 @@ export interface RateLimitRule {
 export const RATE_LIMITS = {
   // Web search + streamed completion per chapter.
   chapter: { name: "chapter", limit: 30, windowMs: 60 * 60 * 1000 },
-  // Image generation is the priciest call per request.
-  chapterImage: { name: "chapter-image", limit: 20, windowMs: 60 * 60 * 1000 },
   // Source summarization + roadmap drafting over every source.
   roadmap: { name: "roadmap", limit: 10, windowMs: 60 * 60 * 1000 },
   // Retrieval + rerank + completion per message.

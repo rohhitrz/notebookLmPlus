@@ -25,6 +25,12 @@ export interface Citation {
   chunkId: string;
   sourceId: string;
   preview: string;
+  /** Source title, so a citation can name where it came from. */
+  sourceTitle?: string;
+  /** 1-based PDF page the cited passage sits on. */
+  page?: number;
+  /** Start time in seconds for timed sources (video / transcript). */
+  startSec?: number;
 }
 
 export interface DisplayMessage {
@@ -107,8 +113,6 @@ export const chapterContentSchema = z.object({
   // The lesson as GitHub-flavored Markdown, streamed as it's generated.
   body: z.string().default(""),
   citations: z.array(chapterCitationSchema).default([]),
-  // Illustration, generated lazily after the text is ready.
-  imageUrl: z.string().nullable().default(null),
   // Legacy structured fields — chapters generated before the streaming refactor
   // stored their content this way; kept optional so they still render.
   overview: z.string().optional(),

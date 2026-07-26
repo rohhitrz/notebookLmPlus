@@ -3,16 +3,13 @@ import pLimit from "p-limit";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { chats, chunks, roadmaps, sources } from "@/lib/db/schema";
-import { chatJSON, generateImage } from "@/lib/llm";
+import { chatJSON } from "@/lib/llm";
 import {
-  buildChapterImagePrompt,
   collectCitationsFromText,
   fetchChapterSources,
   generateChapter,
   streamChapterBody,
 } from "@/lib/chapters";
-import { assertContentSafe } from "@/lib/studio/moderation";
-import { uploadLearnImage } from "@/lib/storage";
 import { buildSourcesBlock, type RetrievedChunk } from "@/lib/rag";
 import {
   DIFFICULTY_LEVELS,
@@ -336,7 +333,6 @@ export async function* streamChapter(
   const content: ChapterContent = {
     body,
     citations: collectCitationsFromText(body, sources),
-    imageUrl: null,
   };
 
   // Re-read before writing so a concurrent update isn't clobbered.
@@ -350,47 +346,6 @@ export async function* streamChapter(
   await db.update(roadmaps).set({ items: next }).where(eq(roadmaps.id, roadmapRow.id));
 
   yield { type: "done", content };
-}
-
-// Derives the chapter's illustration from its concept + lesson text and persists
-// the resulting URL back into the chapter content. Idempotent: returns the
-// existing URL if one has already been generated. Kept separate from chapter
-// generation so the lesson text can render before the (slower) image.
-export async function generateChapterImage(
-  notebookId: string,
-  roadmapItemId: string,
-): Promise<string | null> {
-  const [roadmapRow] = await db.select().from(roadmaps).where(eq(roadmaps.notebookId, notebookId));
-  if (!roadmapRow) throw new Error("Roadmap not found");
-
-  const items = (roadmapRow.items as RoadmapItem[]) ?? [];
-  const item = items.find((i) => i.id === roadmapItemId);
-  if (!item?.content) throw new Error("Chapter has not been generated yet");
-  if (item.content.imageUrl) return item.content.imageUrl;
-
-  // Build an infographic-style prompt (flow + term cards) from the actual
-  // lesson text, so the image is a usable visual summary, not just decor.
-  const lessonText = item.content.body ?? item.content.overview ?? item.concept;
-  const prompt = await buildChapterImagePrompt(item.concept, lessonText);
-  await assertContentSafe(prompt, item.concept);
-
-  // "high" quality — the sparse-text infographic prompt has few enough words
-  // that the extra render time (still under the route's 60s budget) buys much
-  // more reliable, legible text than "medium" does.
-  const png = await generateImage(prompt, { quality: "high" });
-  const imageUrl = await uploadLearnImage(`${notebookId}/${roadmapItemId}.png`, png);
-
-  // Re-read to avoid clobbering a concurrent chapter/status update, then patch
-  // just this item's imageUrl.
-  const [freshRow] = await db.select().from(roadmaps).where(eq(roadmaps.notebookId, notebookId));
-  const freshItems = (freshRow?.items as RoadmapItem[]) ?? items;
-  const next = freshItems.map((i) =>
-    i.id === roadmapItemId && i.content
-      ? { ...i, content: { ...i.content, imageUrl } }
-      : i,
-  );
-  await db.update(roadmaps).set({ items: next }).where(eq(roadmaps.id, roadmapRow.id));
-  return imageUrl;
 }
 
 export async function setRoadmapItemStatus(

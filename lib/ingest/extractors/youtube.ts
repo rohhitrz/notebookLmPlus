@@ -19,25 +19,41 @@ export interface ResolvedYoutubeVideo {
 export async function resolveYoutubeUrls(
   url: string,
 ): Promise<ResolvedYoutubeVideo[]> {
-  const u = new URL(url);
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return [{ url }];
+  }
+
   const listId = u.searchParams.get("list");
-  if (!listId) return [{ url }];
+  const hasVideoId = !!extractVideoId(url);
 
-  const { innertube } = await getYoutubeSession();
-  const playlist = await innertube.getPlaylist(listId);
+  // A plain video link (including a video that merely carries a &list= param)
+  // needs no lookup at all — just index that video.
+  if (!listId || hasVideoId) return [{ url }];
 
-  const videos: ResolvedYoutubeVideo[] = [];
-  for (const item of playlist.items) {
-    const id = (item as { id?: string }).id;
-    if (!id) continue;
-    const title = (item as { title?: { toString(): string } }).title?.toString();
-    videos.push({ url: `https://www.youtube.com/watch?v=${id}`, title });
+  // Expanding a playlist needs an Innertube session, which mints a PO token via
+  // BotGuard. That is slow and can fail outright in a serverless environment, so
+  // it must never take down the request: fall back to adding the URL as-is and
+  // let the extractor report any problem as a per-source error instead of a 500.
+  try {
+    const { innertube } = await getYoutubeSession();
+    const playlist = await innertube.getPlaylist(listId);
+
+    const videos: ResolvedYoutubeVideo[] = [];
+    for (const item of playlist.items) {
+      const id = (item as { id?: string }).id;
+      if (!id) continue;
+      const title = (item as { title?: { toString(): string } }).title?.toString();
+      videos.push({ url: `https://www.youtube.com/watch?v=${id}`, title });
+    }
+
+    return videos.length > 0 ? videos : [{ url }];
+  } catch (err) {
+    console.error("[youtube] playlist expansion failed; adding URL as-is", err);
+    return [{ url }];
   }
-
-  if (videos.length === 0) {
-    throw new Error("Playlist has no videos");
-  }
-  return videos;
 }
 
 interface VideoData {
@@ -51,14 +67,30 @@ interface VideoData {
 // timedtext request is signed with a PO token. `vtt` is "" when YouTube rejects
 // the token or the video has no captions.
 async function fetchVideoData(videoId: string): Promise<VideoData> {
-  const { innertube, poToken } = await getYoutubeSession();
+  // Minting a PO token runs BotGuard through jsdom, which can fail in a
+  // serverless environment. That must not cost us the whole video: without a
+  // token we can still read title/description via a plain session and index
+  // those, we just can't download captions.
+  let innertube: Awaited<ReturnType<typeof getYoutubeSession>>["innertube"];
+  let poToken: string | null = null;
+  try {
+    const session = await getYoutubeSession();
+    innertube = session.innertube;
+    poToken = session.poToken;
+  } catch (err) {
+    console.error("[youtube] PO token unavailable; indexing metadata only", err);
+    const { Innertube } = await import("youtubei.js");
+    innertube = await Innertube.create({ retrieve_player: false });
+  }
+
   const info = await innertube.getInfo(videoId);
   const title = info.basic_info.title ?? "YouTube video";
   const description = info.basic_info.short_description ?? "";
 
   const tracks = info.captions?.caption_tracks ?? [];
-  if (tracks.length === 0) {
-    // No captions — the caller still indexes the title + description.
+  if (tracks.length === 0 || !poToken) {
+    // No captions available (or no token to fetch them) — the caller still
+    // indexes the title + description.
     return { title, description, vtt: "", hasCaptions: false };
   }
   const track =
@@ -78,7 +110,13 @@ async function fetchVideoData(videoId: string): Promise<VideoData> {
 
 export async function extractYoutube(url: string): Promise<ExtractResult> {
   const videoId = extractVideoId(url);
-  if (!videoId) throw new Error("Could not parse YouTube video ID from URL");
+  if (!videoId) {
+    // Usually a playlist link whose expansion couldn't be reached. Say what to
+    // do rather than reporting a parser detail.
+    throw new Error(
+      "This YouTube link has no video in it — paste a single video link (youtube.com/watch?v=… or youtu.be/…).",
+    );
+  }
 
   let data = await fetchVideoData(videoId);
 

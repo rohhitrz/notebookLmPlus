@@ -113,6 +113,9 @@ export function SourceViewer({ citation, onClose }: SourceViewerProps) {
       <SheetContent className="flex w-full flex-col sm:max-w-2xl">
         <SheetHeader>
           <SheetTitle className="truncate">{source?.title ?? "Loading…"}</SheetTitle>
+          {citation?.page != null && (
+            <p className="text-xs text-muted-foreground">Page {citation.page}</p>
+          )}
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto px-4 pb-4">

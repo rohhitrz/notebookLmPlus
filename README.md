@@ -4,10 +4,10 @@
 
 Curio turns any topic into a guided course. Name what you want to learn and it
 researches the web, builds an ordered roadmap of chapters sized to the topic's
-breadth, then teaches each one as a cited lesson with its own AI tutor and a
-visual summary infographic. Ask the goal too broadly ("learn about the whole
-world") and it hands back focus options to pick from instead of a shallow
-answer.
+breadth, then teaches each one as a cited lesson — full of worked examples and
+runnable code — with its own AI tutor. Ask the goal too broadly ("learn about
+the whole world") and it hands back focus options to pick from instead of a
+shallow answer.
 
 You can also bring your own material. Feed it PDFs, plain text, web pages,
 YouTube videos, or VTT transcripts — each source is extracted, chunked,
@@ -21,9 +21,9 @@ The two modes:
 
 - **Learning projects** (the headline) — a goal becomes a web-grounded roadmap
   with per-chapter difficulty and time estimates. Each chapter streams in as it's
-  written, carries an infographic-style visual summary, and gets its own scoped
-  tutor chat that stays strictly on-topic (so the model never has to hold a whole
-  subject in one context window).
+  written, is dense with worked examples and runnable code, and gets its own
+  scoped tutor chat that stays strictly on-topic (so the model never has to hold
+  a whole subject in one context window).
 - **Notebooks** — your own documents, plus a **Studio** that generates a two-host
   AI podcast (male/female voices) narrating your sources, and dense PowerPoint
   decks up to 30 slides, built batch-by-batch with fresh retrieval per batch.
@@ -37,7 +37,7 @@ The two modes:
 | Auth | [Clerk](https://clerk.com) (`clerkMiddleware` in `proxy.ts` protects all app + API routes) |
 | Database | Supabase Postgres + [pgvector](https://github.com/pgvector/pgvector) (HNSW, cosine) via [Drizzle ORM](https://orm.drizzle.team) |
 | Storage | Supabase Storage (`sources`, `artifacts` buckets) |
-| LLM / embeddings / images / TTS / moderation | OpenAI (single provider, all calls go through `lib/llm.ts`) |
+| LLM / embeddings / TTS / moderation | OpenAI (single provider, all calls go through `lib/llm.ts`) |
 | Web search | [Tavily](https://tavily.com) — grounds every generated lesson chapter |
 | Ingest | LangChain loaders + custom splitter; `unpdf`, `@mozilla/readability`, `youtubei.js` |
 | Podcast audio | OpenAI TTS + `ffmpeg` (bundled via `ffmpeg-static`) |
@@ -92,7 +92,7 @@ Defence in depth, since every route touches user data and paid APIs:
   and the storage key's extension comes from a type allowlist, never the
   user-supplied filename.
 - **Cost containment.** `lib/rate-limit.ts` throttles the endpoints that spend
-  money (chapter build, image generation, roadmap, chat, Studio) per user.
+  money (chapter build, roadmap, chat, Studio) per user.
   Note: counters are in-memory, so they are per-instance — effective against
   runaway retries, but back it with a shared store (e.g. Upstash Redis) if you
   expose this publicly.
@@ -116,7 +116,7 @@ lib/
   ingest/                extractors (pdf, text, url, youtube, vtt), chunker, pipeline
     potoken.ts           mints a YouTube PO token so caption downloads work
   learn.ts               roadmap generation + scoped teaching context
-  chapters.ts            web-grounded lesson streaming + infographic prompts
+  chapters.ts            web-grounded lesson streaming (examples-first prompts)
   net/safe-fetch.ts      SSRF-guarded fetch for user-supplied URLs
   rate-limit.ts          per-user throttles on paid endpoints
   studio/                podcast, pptx, tts, summarize, moderation
@@ -161,7 +161,6 @@ cp .env.example .env
 | `OPENAI_API_KEY` | OpenAI API key |
 | `OPENAI_CHAT_MODEL` | Chat / structured-output / rerank model |
 | `OPENAI_EMBED_MODEL` | Embedding model (used at 768 dims) |
-| `OPENAI_IMAGE_MODEL` | Chapter visual-summary infographics (e.g. `gpt-image-1`) |
 | `OPENAI_TTS_MODEL` | Podcast text-to-speech model |
 | `OPENAI_MODERATION_MODEL` | Moderation model for generated content |
 | `TAVILY_API_KEY` | Web search that grounds generated lesson chapters — **required** for learning projects |
@@ -169,9 +168,7 @@ cp .env.example .env
 | `NEXT_PUBLIC_APP_URL` | App base URL (e.g. `http://localhost:3000`) |
 
 Deploying to Vercel? Set all of these in **Settings → Environment Variables** and
-redeploy — new variables don't apply to existing deployments. `OPENAI_IMAGE_MODEL`
-with `gpt-image-1` requires a **verified OpenAI organization**; without one,
-lessons still render and the illustration is simply skipped.
+redeploy — new variables don't apply to existing deployments.
 
 ### 4. Install, migrate, run
 

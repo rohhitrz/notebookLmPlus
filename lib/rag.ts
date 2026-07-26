@@ -208,6 +208,11 @@ export function parseCitations(
       chunkId: chunk.chunkId,
       sourceId: chunk.sourceId,
       preview: chunk.content.slice(0, 120),
+      sourceTitle: chunk.sourceTitle,
+      // Carried through so a citation can show "p. 12" / a timestamp rather
+      // than a bare number.
+      ...(chunk.metadata.page != null ? { page: chunk.metadata.page } : {}),
+      ...(chunk.metadata.startSec != null ? { startSec: chunk.metadata.startSec } : {}),
     });
   }
 
