@@ -138,3 +138,12 @@
     @apply font-sans;
   }
 }
+
+/* Citation PDF text-layer highlights (injected by react-pdf customTextRenderer). */
+.citation-pdf-page mark,
+.citation-pdf-page .citation-mark {
+  background: color-mix(in oklab, var(--color-warning) 55%, transparent);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}

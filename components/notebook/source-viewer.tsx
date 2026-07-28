@@ -2,8 +2,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import { citationLocation } from "@/components/notebook/citation-chip";
 import type { ChunkDetail, Citation, SourceDetail } from "@/lib/types";
 
 // react-pdf touches browser-only globals (DOMMatrix) at module load, which
@@ -40,13 +47,15 @@ function HighlightedText({ text, highlight }: { text: string; highlight: string 
 
   const idx = highlight ? text.indexOf(highlight) : -1;
   if (idx === -1) {
-    return <p className="whitespace-pre-wrap text-sm">{text}</p>;
+    return <p className="whitespace-pre-wrap text-sm leading-relaxed">{text}</p>;
   }
 
   return (
-    <p className="whitespace-pre-wrap text-sm">
+    <p className="whitespace-pre-wrap text-sm leading-relaxed">
       {text.slice(0, idx)}
-      <mark ref={markRef}>{text.slice(idx, idx + highlight.length)}</mark>
+      <mark ref={markRef} className="rounded-sm bg-amber-300/70 px-0.5 text-inherit dark:bg-amber-400/40">
+        {text.slice(idx, idx + highlight.length)}
+      </mark>
       {text.slice(idx + highlight.length)}
     </p>
   );
@@ -65,6 +74,22 @@ function YoutubeEmbed({ origin, startSec }: { origin: string; startSec?: number 
       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
       allowFullScreen
     />
+  );
+}
+
+function CitedPassage({ text, page }: { text: string; page?: number }) {
+  return (
+    <aside className="shrink-0 rounded-lg border bg-muted/40 px-3 py-2.5">
+      <div className="mb-1 flex items-center gap-2 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+        <span>Cited passage</span>
+        {page != null && (
+          <span className="rounded bg-primary/10 px-1.5 py-0.5 font-normal normal-case tracking-normal text-primary">
+            p. {page}
+          </span>
+        )}
+      </div>
+      <p className="line-clamp-4 text-sm leading-relaxed text-foreground/90">“{text}”</p>
+    </aside>
   );
 }
 
@@ -103,22 +128,30 @@ export function SourceViewer({ citation, onClose }: SourceViewerProps) {
     };
   }, [citation]);
 
+  const page = chunk?.metadata?.page ?? citation?.page;
+  const passage = chunk?.content ?? citation?.preview ?? "";
+  const location = citation ? citationLocation(citation) : null;
+
   return (
-    <Sheet
+    <Dialog
       open={!!citation}
       onOpenChange={(open) => {
         if (!open) onClose();
       }}
     >
-      <SheetContent className="flex w-full flex-col sm:max-w-2xl">
-        <SheetHeader>
-          <SheetTitle className="truncate">{source?.title ?? "Loading…"}</SheetTitle>
-          {citation?.page != null && (
-            <p className="text-xs text-muted-foreground">Page {citation.page}</p>
-          )}
-        </SheetHeader>
+      <DialogContent
+        className="flex h-[min(92vh,900px)] w-full max-w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl"
+      >
+        <DialogHeader className="shrink-0 space-y-1 border-b px-5 py-4 pr-12 text-left">
+          <DialogTitle className="truncate text-base">
+            {source?.title ?? "Loading…"}
+          </DialogTitle>
+          <DialogDescription className="text-xs">
+            {location ?? (page != null ? `Page ${page}` : "Source citation")}
+          </DialogDescription>
+        </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto px-4 pb-4">
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden px-5 py-4">
           {loading && (
             <div className="flex flex-col gap-2.5 pt-1">
               {[95, 100, 88, 92, 70, 100, 84].map((w, i) => (
@@ -127,39 +160,54 @@ export function SourceViewer({ citation, onClose }: SourceViewerProps) {
             </div>
           )}
 
+          {!loading && passage && source?.type === "pdf" && (
+            <CitedPassage text={passage} page={page} />
+          )}
+
           {!loading && source?.type === "pdf" && (
-            <PdfViewer
-              fileUrl={`/api/sources/${source.id}/file`}
-              page={chunk?.metadata?.page}
-              highlightText={chunk?.content}
-            />
+            <div className="min-h-0 flex-1">
+              <PdfViewer
+                fileUrl={`/api/sources/${source.id}/file`}
+                page={page}
+                highlightText={chunk?.content}
+              />
+            </div>
           )}
 
           {!loading && (source?.type === "text" || source?.type === "vtt") && (
-            <HighlightedText text={source.rawContent ?? ""} highlight={chunk?.content ?? ""} />
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              {passage && <CitedPassage text={passage} page={page} />}
+              <div className={passage ? "mt-3" : undefined}>
+                <HighlightedText text={source.rawContent ?? ""} highlight={chunk?.content ?? ""} />
+              </div>
+            </div>
           )}
 
           {!loading && source?.type === "url" && (
-            <div className="flex flex-col gap-3">
+            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
               {source.origin && (
                 <a
                   href={source.origin}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-sm text-primary underline"
+                  className="shrink-0 text-sm text-primary underline"
                 >
                   Open original ↗
                 </a>
               )}
+              {passage && <CitedPassage text={passage} page={page} />}
               <HighlightedText text={source.rawContent ?? ""} highlight={chunk?.content ?? ""} />
             </div>
           )}
 
           {!loading && source?.type === "youtube" && source.origin && (
-            <YoutubeEmbed origin={source.origin} startSec={chunk?.metadata?.startSec} />
+            <div className="flex flex-col gap-3">
+              {passage && <CitedPassage text={passage} />}
+              <YoutubeEmbed origin={source.origin} startSec={chunk?.metadata?.startSec} />
+            </div>
           )}
         </div>
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   );
 }
